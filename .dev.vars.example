@@ -1,0 +1,5 @@
+# Copia este archivo como .dev.vars (NO se sube a git) y llena tus valores.
+GOOGLE_PLACES_KEY=tu_clave_de_servidor
+GOOGLE_MAPS_BROWSER_KEY=
+ACCESS_CODE=elige-un-codigo-largo
+DAILY_LIMIT=60

@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Prospector NFC · Rutas & Reseñas Google</title>
+  
+  <!-- Configuración Móvil & PWA -->
+  <meta name="theme-color" content="#0B0F19">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Prospector NFC">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
+  <link rel="apple-touch-icon" href="icons/icon.svg">
+
+  <!-- Estilos -->
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+  <!-- Encabezado Superior -->
+  <header class="app-header">
+    <div class="brand">
+      <img src="icons/icon.svg" alt="Prospector NFC" class="brand-icon">
+      <h1 class="brand-title">Prospector NFC</h1>
+    </div>
+    <div class="header-status">
+      <span class="chip-status" id="gpsIndicator">
+        <span class="pulse-dot"></span> GPS Listo
+      </span>
+    </div>
+  </header>
+
+  <!-- ======================================================================
+       VISTA 1: BÚSQUEDA & PROSPECTOS
+       ====================================================================== -->
+  <main class="view-section active" id="view-buscar">
+    <!-- Caja de Control de Búsqueda -->
+    <div class="search-box">
+      <button type="button" class="btn-primary-gps" id="btnBuscarGps">
+        <span>📍 Buscar cerca de mí</span>
+      </button>
+
+      <!-- Selector de Radio -->
+      <div class="filter-group-label">
+        <span>Radio de cobertura</span>
+      </div>
+      <div class="chips-row">
+        <button type="button" class="chip-selectable chip-radio" data-radio="300">300 m</button>
+        <button type="button" class="chip-selectable chip-radio" data-radio="600">600 m</button>
+        <button type="button" class="chip-selectable chip-radio active" data-radio="800">800 m</button>
+        <button type="button" class="chip-selectable chip-radio" data-radio="1500">1.5 km</button>
+        <button type="button" class="chip-selectable chip-radio" data-radio="2500">2.5 km</button>
+      </div>
+
+      <!-- Selector de Giros Objetivo -->
+      <div class="filter-group-label" style="margin-top: 14px;">
+        <span>Giros objetivo</span>
+      </div>
+      <div class="chips-row" id="girosChipsContainer">
+        <!-- Renderizado dinámico desde config -->
+      </div>
+
+      <p class="query-usage-info" id="queryUsageInfo">
+        Selecciona los giros para optimizar tus consultas.
+      </p>
+    </div>
+
+    <!-- Barra de Filtros de Lista -->
+    <div class="results-filter-bar">
+      <div class="tab-filter-pill">
+        <button type="button" class="tab-filter-btn active" id="btnFiltroPrioridad">Alta Prioridad</button>
+        <button type="button" class="tab-filter-btn" id="btnFiltroTodos">Todos</button>
+      </div>
+
+      <button type="button" class="toggle-plaza-chica" id="btnTogglePlaza">
+        🏬 Solo plazas chicas
+      </button>
+    </div>
+
+    <!-- Contenedor de Tarjetas de Prospectos -->
+    <div class="lugares-lista" id="lugaresListaContainer">
+      <div style="text-align: center; padding: 40px 16px; color: var(--text-dim);">
+        <p style="font-size: 2.5rem; margin-bottom: 10px;">🎯</p>
+        <p style="font-weight: 700; color: var(--text-muted); font-size: 1.05rem;">Comienza a prospectar</p>
+        <p style="font-size: 0.88rem; margin-top: 6px;">
+          Toca <strong>"Buscar cerca de mí"</strong> para encontrar los comercios que más necesitan reseñas en Google.
+        </p>
+      </div>
+    </div>
+
+    <!-- Atribución Legal de Google -->
+    <footer class="google-attribution-footer">
+      <span>Datos provistos por Google Maps Platform · © Google</span>
+    </footer>
+  </main>
+
+  <!-- ======================================================================
+       VISTA 2: MAPA INTERACTIVO
+       ====================================================================== -->
+  <section class="view-section" id="view-mapa">
+    <div id="mapaContainer" style="width: 100%; height: 75vh; height: 75dvh; border-radius: var(--radius-md); overflow: hidden; background-color: var(--bg-card); position: relative;">
+      <div style="padding: 30px; text-align: center; color: var(--text-muted); position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 85%;">
+        <p style="font-size: 2.2rem; margin-bottom: 10px;">🗺️</p>
+        <p style="font-weight: 700; color: var(--text-main);">Mapa interactivo</p>
+        <p style="font-size: 0.85rem; margin-top: 6px; color: var(--text-dim);">
+          Los marcadores de los negocios se mostrarán aquí una vez realizada la búsqueda. Puedes navegar directamente desde la lista de prospectos.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================================================================
+       VISTA 3: RUTA DE VISITAS
+       ====================================================================== -->
+  <section class="view-section" id="view-ruta">
+    <div class="route-header-box">
+      <h2 style="font-size: 1.2rem; font-weight: 800; color: #FFFFFF; margin-bottom: 4px;">Mi Ruta de Hoy</h2>
+      <p style="font-size: 0.85rem; color: #CBD5E1;">
+        Paradas ordenadas automáticamente por cercanía para minimizar traslados.
+      </p>
+
+      <div style="display: flex; gap: 8px; margin-top: 14px;">
+        <button type="button" class="btn-primary-gps" id="btnAbrirRutaCompletaMaps" style="min-height: 46px; font-size: 0.95rem; display: none;">
+          <span>📲 Abrir Ruta en Google Maps</span>
+        </button>
+        <button type="button" class="btn-action-sheet" id="btnLimpiarRuta" style="min-height: 46px; font-size: 0.85rem;">
+          Vaciar
+        </button>
+      </div>
+    </div>
+
+    <div id="rutaParadasContainer">
+      <!-- Se puebla con las tarjetas de ruta -->
+    </div>
+  </section>
+
+  <!-- ======================================================================
+       BOTTOM SHEET: DETALLE DE NEGOCIO & NFC LINK
+       ====================================================================== -->
+  <div class="sheet-overlay" id="sheetOverlay">
+    <div class="bottom-sheet">
+      <div class="sheet-drag-handle"></div>
+      <div class="sheet-content" id="sheetBody">
+        <!-- Contenido inyectado dinámicamente -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================================================================
+       MODAL DE AUTENTICACIÓN (PIN DE VENDEDOR)
+       ====================================================================== -->
+  <div class="auth-modal" id="authModal" style="display: none;">
+    <div class="auth-modal-card">
+      <img src="icons/icon.svg" alt="Prospector NFC" style="width: 52px; height: 52px; margin-bottom: 12px;">
+      <h2 style="font-size: 1.25rem; font-weight: 800; color: #FFFFFF;">Acceso al Prospector</h2>
+      <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 6px;">
+        Ingresa el código de vendedor asignado para consultar negocios reales.
+      </p>
+
+      <input type="password" class="input-pin" id="inputPinAcceso" placeholder="CÓDIGO DE ACCESO" autocomplete="off">
+
+      <button type="button" class="btn-primary-gps" id="btnGuardarPin">
+        Entrar
+      </button>
+    </div>
+  </div>
+
+  <!-- Barra de Navegación Inferior Fija -->
+  <nav class="bottom-nav">
+    <button type="button" class="nav-tab-btn active" id="tabBtn-buscar">
+      <span class="nav-tab-icon">🔍</span>
+      <span>Buscar</span>
+    </button>
+
+    <button type="button" class="nav-tab-btn" id="tabBtn-mapa">
+      <span class="nav-tab-icon">🗺️</span>
+      <span>Mapa</span>
+    </button>
+
+    <button type="button" class="nav-tab-btn" id="tabBtn-ruta">
+      <span class="nav-tab-icon">📍</span>
+      <span>Ruta</span>
+      <span class="nav-badge-count" id="badgeRutaCount" style="display: none;">0</span>
+    </button>
+  </nav>
+
+  <!-- Notificación Toast Flotante -->
+  <div class="toast-container" id="appToast" aria-live="polite">
+    ¡Link de reseña copiado!
+  </div>
+
+  <!-- Script Principal de la App -->
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
