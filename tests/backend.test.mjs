@@ -78,3 +78,43 @@ test('google.js normalizarLugarGoogle mapea correctamente datos y genera link de
   assert.equal(normalizado.contenidoEn.length, 1);
   assert.equal(normalizado.contenidoEn[0].esCentroComercial, true);
 });
+
+test('osm.js clasificarGiroOSM y normalizarLugarOSM mapean tags de OpenStreetMap correctamente', async () => {
+  const { clasificarGiroOSM, normalizarLugarOSM } = await import('../functions/_lib/osm.js');
+
+  assert.equal(clasificarGiroOSM({ amenity: 'cafe' }).clave, 'cafeterias');
+  assert.equal(clasificarGiroOSM({ shop: 'hairdresser' }).clave, 'barberias');
+  assert.equal(clasificarGiroOSM({ shop: 'beauty' }).clave, 'esteticas');
+  assert.equal(clasificarGiroOSM({ amenity: 'fast_food' }).clave, 'comida_rapida');
+  assert.equal(clasificarGiroOSM({ amenity: 'dentist' }).clave, 'consultorios');
+  assert.equal(clasificarGiroOSM({ amenity: 'restaurant' }).clave, 'restaurantes');
+
+  const rawOSM = {
+    type: 'node',
+    id: 987654321,
+    lat: 19.4326,
+    lon: -99.1332,
+    tags: {
+      name: 'Barbería Don Pepe',
+      shop: 'hairdresser',
+      'addr:street': 'Calle Madero',
+      'addr:housenumber': '24',
+      'addr:suburb': 'Centro',
+      'addr:city': 'CDMX',
+      phone: '55 1122 3344'
+    }
+  };
+
+  const norm = normalizarLugarOSM(rawOSM);
+  assert.equal(norm.placeId, 'osm:node:987654321');
+  assert.equal(norm.nombre, 'Barbería Don Pepe');
+  assert.equal(norm.giroClave, 'barberias');
+  assert.equal(norm.lat, 19.4326);
+  assert.equal(norm.lng, -99.1332);
+  assert.equal(norm.direccion, 'Calle Madero #24, Centro, CDMX');
+  assert.equal(norm.telefono, '55 1122 3344');
+  assert.ok(norm.mapsUrl.includes('google.com/maps/search/'));
+  assert.ok(norm.mapsUrl.includes('Barber%C3%ADa%20Don%20Pepe'));
+  assert.equal(norm.fuente, 'openstreetmap');
+});
+

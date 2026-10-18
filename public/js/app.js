@@ -249,7 +249,11 @@ function actualizarConteoConsultas() {
   const infoEl = document.getElementById('queryUsageInfo');
   if (!infoEl) return;
   const cant = estado.giros.size;
-  infoEl.textContent = `Esta búsqueda utilizará ${cant} consulta${cant === 1 ? '' : 's'} a Google Places.`;
+  if (!estado.config?.tieneGoogleKey) {
+    infoEl.textContent = `Búsqueda libre con OpenStreetMap (${cant} giro${cant === 1 ? '' : 's'} · 100% Gratuita e Ilimitada).`;
+  } else {
+    infoEl.textContent = `Esta búsqueda utilizará ${cant} consulta${cant === 1 ? '' : 's'} a Google Places.`;
+  }
 }
 
 /* ───────────────────────────── Geolocalización & Búsqueda ───────────────────────────── */
@@ -441,7 +445,8 @@ function abrirDetalleLugar(lugar) {
   if (!overlay || !body) return;
 
   const enRuta = estado.paradasRuta.some((p) => p.placeId === lugar.placeId);
-  const revLink = linkResena(lugar.placeId);
+  const esOSM = lugar.fuente === 'openstreetmap' || lugar.placeId?.startsWith('osm:');
+  const revLink = esOSM ? (lugar.linkResena || lugar.mapsUrl) : linkResena(lugar.placeId);
 
   body.innerHTML = `
     <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
@@ -458,16 +463,19 @@ function abrirDetalleLugar(lugar) {
         <span>📲 Configurar Tarjeta NFC</span>
       </div>
       <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 8px;">
-        Copia este enlace directo a la ventana de reseña de Google Maps y pégalo en la app <strong>NFC Tools</strong>:
+        ${esOSM 
+          ? 'Enlace universal de búsqueda en Google Maps. Al acercar la tarjeta NFC a cualquier iPhone o Android, abrirá directamente la ficha del comercio para calificar:'
+          : 'Copia este enlace directo a la ventana de reseña de Google Maps y pégalo en la app <strong>NFC Tools</strong>:'}
       </p>
       <button type="button" class="btn-copiar-nfc" id="btnCopiarReviewLink">
-        <span>📋 Copiar link de reseña</span>
+        <span>📋 Copiar link para NFC Tools</span>
       </button>
+      ${!esOSM ? `
       <div style="margin-top: 8px;">
         <button type="button" class="btn-secondary-copy" id="btnCopiarPlaceId">
           Copiar Place ID (${lugar.placeId.slice(0, 10)}...)
         </button>
-      </div>
+      </div>` : ''}
     </div>
 
     <!-- Aviso Verídico de Google -->

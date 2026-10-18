@@ -15,7 +15,9 @@ export async function onRequestGet({ env }) {
       mapsBrowserKey: env?.GOOGLE_MAPS_BROWSER_KEY ? env.GOOGLE_MAPS_BROWSER_KEY.trim() : null,
       giros: obtenerCatalogoGiros(),
       usoHoy: usoInfo.limite !== null ? { usadas: usoInfo.usadas, limite: usoInfo.limite } : null,
-      requiereCodigo: Boolean((env?.ACCESS_CODE || '').trim())
+      requiereCodigo: Boolean((env?.ACCESS_CODE || '').trim()),
+      tieneGoogleKey: Boolean((env?.GOOGLE_PLACES_KEY || '').trim()),
+      motor: (env?.GOOGLE_PLACES_KEY || '').trim() ? 'google' : 'openstreetmap'
     };
 
     return new Response(JSON.stringify(config), {

@@ -1,30 +1,27 @@
 /**
  * POST /api/ruta
- * Calcula el trayecto exacto hacia un negocio (transporte público, a pie o auto) mediante Google Routes API.
+ * Calcula el trayecto hacia un negocio.
+ * Si GOOGLE_PLACES_KEY está configurada, consulta Google Routes API.
+ * Si no está configurada, calcula la distancia física y proporciona el enlace directo de navegación en Google Maps (gratuito e ilimitado).
  */
 
 import { verificarAutenticacion, respuestaNoAutorizado } from '../_lib/auth.js';
 import { calcularRutaGoogle } from '../_lib/google.js';
 
+function calcularDistanciaMetros(lat1, lon1, lat2, lon2) {
+  const R = 6371008.8;
+  const rad = Math.PI / 180;
+  const dLat = (lat2 - lat1) * rad;
+  const dLng = (lon2 - lon1) * rad;
+  const s =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLng / 2) ** 2;
+  return Math.round(2 * R * Math.asin(Math.min(1, Math.sqrt(s))));
+}
+
 export async function onRequestPost({ request, env }) {
   if (!verificarAutenticacion(request, env)) {
     return respuestaNoAutorizado();
-  }
-
-  const apiKey = (env?.GOOGLE_PLACES_KEY || '').trim();
-  if (!apiKey) {
-    return new Response(
-      JSON.stringify({
-        ok: false,
-        error:
-          'La variable GOOGLE_PLACES_KEY no está configurada en el servidor. Configúrala en Cloudflare Pages o en tu archivo .dev.vars.',
-        codigo: 'FALTA_API_KEY'
-      }),
-      {
-        status: 500,
-        headers: { 'Content-Type': 'application/json; charset=utf-8' }
-      }
-    );
   }
 
   let body;
@@ -67,13 +64,48 @@ export async function onRequestPost({ request, env }) {
     );
   }
 
+  const oLat = parseFloat(origen.lat);
+  const oLng = parseFloat(origen.lng);
+  const dLat = parseFloat(destino.lat || 0);
+  const dLng = parseFloat(destino.lng || 0);
+  const distM = calcularDistanciaMetros(oLat, oLng, dLat, dLng);
+
+  const apiKey = (env?.GOOGLE_PLACES_KEY || '').trim();
+
+  // Si no hay API key de Google, calculamos estimación física y derivamos a la app de Google Maps
+  if (!apiKey) {
+    const velKmh = modo === 'WALK' ? 4.5 : modo === 'DRIVE' ? 25 : 18;
+    const duracionSeg = Math.max(60, Math.round((distM / 1000 / velKmh) * 3600));
+
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        modo,
+        duracionSeg,
+        distanciaM: distM,
+        resumen: `Distancia aproximada: ${distM} m. Usa el botón inferior para abrir la ruta y traslados paso a paso en tu app de Google Maps.`,
+        pasos: [],
+        avisos: [
+          'Navegación nativa de Google Maps activada (100% gratuita y sin costo de API).'
+        ]
+      }),
+      {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-store'
+        }
+      }
+    );
+  }
+
   try {
     const ruta = await calcularRutaGoogle({
-      origen: { lat: parseFloat(origen.lat), lng: parseFloat(origen.lng) },
+      origen: { lat: oLat, lng: oLng },
       destino: {
         placeId: destino.placeId,
-        lat: parseFloat(destino.lat || 0),
-        lng: parseFloat(destino.lng || 0)
+        lat: dLat,
+        lng: dLng
       },
       modo,
       apiKey
