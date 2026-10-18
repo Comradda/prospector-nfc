@@ -89,11 +89,10 @@ export async function inicializarMapa(contenedor, centro = CENTRO_DEFECTO) {
   // Control de zoom en esquina inferior derecha (fácil alcance con el pulgar)
   L.control.zoom({ position: 'bottomright' }).addTo(mapaInstancia);
 
-  // CartoDB Positron (diseño blanco minimalista de alta legibilidad)
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-    attribution: '&copy; OpenStreetMap &copy; CARTO',
-    subdomains: 'abcd',
-    maxZoom: 20
+  // OpenStreetMap oficial (100% libre de API Key y sin marcas de agua)
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors',
+    maxZoom: 19
   }).addTo(mapaInstancia);
 
   capaRuta = L.layerGroup().addTo(mapaInstancia);

@@ -743,6 +743,11 @@ svg.icon-lg {
   z-index: 1;
 }
 
+/* Tratamiento minimalista sobre los mosaicos de OpenStreetMap (los pines conservan 100% su color) */
+.map-canvas .leaflet-tile-pane {
+  filter: grayscale(0.82) contrast(1.04) brightness(1.03);
+}
+
 /* Marcadores personalizados en Leaflet */
 .map-user-pin-wrapper,
 .map-prospect-pin-wrapper,
