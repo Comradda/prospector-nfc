@@ -5,13 +5,21 @@ import {
   urlComoLlegar,
   urlsRutaCompleta,
   linkResena,
+  extraerPlaceId,
   duracionTexto,
   distanciaTexto
 } from '../public/js/ruta.js';
 
-test('linkResena genera la URL canónica para escribir reseñas en Google Maps', () => {
-  const url = linkResena('ChIJgUbEo8cfqokR5lP9_WhqJKg');
-  assert.equal(url, 'https://search.google.com/local/writereview?placeid=ChIJgUbEo8cfqokR5lP9_WhqJKg');
+test('linkResena y extraerPlaceId generan siempre search.google.com/local/writereview?placeid=ChIJ...', () => {
+  assert.equal(extraerPlaceId('ChIJt8FmsX3Z7IUR8HkOVjboSow'), 'ChIJt8FmsX3Z7IUR8HkOVjboSow');
+  assert.equal(
+    extraerPlaceId('https://search.google.com/local/writereview?placeid=ChIJt8FmsX3Z7IUR8HkOVjboSow'),
+    'ChIJt8FmsX3Z7IUR8HkOVjboSow'
+  );
+  const url = linkResena('ChIJt8FmsX3Z7IUR8HkOVjboSow');
+  assert.equal(url, 'https://search.google.com/local/writereview?placeid=ChIJt8FmsX3Z7IUR8HkOVjboSow');
+  const urlDesdeLink = linkResena('https://search.google.com/local/writereview?placeid=ChIJt8FmsX3Z7IUR8HkOVjboSow');
+  assert.equal(urlDesdeLink, 'https://search.google.com/local/writereview?placeid=ChIJt8FmsX3Z7IUR8HkOVjboSow');
 });
 
 test('duracionTexto y distanciaTexto formatean valores amigables en español', () => {

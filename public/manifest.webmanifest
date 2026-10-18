@@ -1,12 +1,12 @@
 {
-  "name": "Prospector NFC · Rutas & Reseñas",
+  "name": "Prospector NFC · Rutas y Reseñas",
   "short_name": "Prospector NFC",
-  "description": "Encuentra comercios que necesitan reseñas de Google Maps, detecta plazas pequeñas y arma rutas de venta.",
+  "description": "Plataforma de prospección comercial y generación de enlaces NFC para reseñas en Google Maps.",
   "start_url": "./",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#0F172A",
-  "theme_color": "#0F172A",
+  "background_color": "#FFFFFF",
+  "theme_color": "#FFFFFF",
   "icons": [
     {
       "src": "icons/icon.svg",

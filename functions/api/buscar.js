@@ -1,14 +1,14 @@
 /**
  * POST /api/buscar
- * Busca negocios del público objetivo cerca de las coordenadas del vendedor.
- * Soporta dos motores:
- * 1) OpenStreetMap (Overpass API): 100% Gratuito, sin tarjetas, sin prepago ni Google Cloud.
- * 2) Google Places API (New): Si está configurada la llave GOOGLE_PLACES_KEY.
+ * Busca comercios cercanos del público objetivo con su Place ID real (ChIJ...),
+ * enlace directo para NFC Tools (https://search.google.com/local/writereview?placeid=ChIJ...)
+ * y número real de reseñas y calificación en Google Maps.
  */
 
 import { verificarAutenticacion, respuestaNoAutorizado } from '../_lib/auth.js';
 import { GIROS, obtenerGiroPorClave } from '../_lib/giros.js';
 import { buscarLugaresGoogle } from '../_lib/google.js';
+import { buscarGiroGooglePublico } from '../_lib/gmaps-public.js';
 import { buscarLugaresOSM } from '../_lib/osm.js';
 import { controlarUsoDiario } from '../_lib/uso.js';
 
@@ -34,7 +34,7 @@ export async function onRequestPost({ request, env }) {
     return new Response(
       JSON.stringify({
         ok: false,
-        error: 'Coordenadas lat/lng requeridas e inválidas',
+        error: 'Coordenadas lat/lng requeridas o inválidas',
         codigo: 'COORDENADAS_INVALIDAS'
       }),
       { status: 400, headers: { 'Content-Type': 'application/json; charset=utf-8' } }
@@ -61,22 +61,21 @@ export async function onRequestPost({ request, env }) {
   }
 
   const apiKey = (env?.GOOGLE_PLACES_KEY || '').trim();
-  const forzarOSM = body.proveedor === 'osm' || !apiKey;
   const avisos = [];
-  let todosLugares = [];
+  const todosLugares = [];
   let numConsultasGoogle = 0;
-  let motorUtilizado = 'openstreetmap';
+  let motorUtilizado = 'google_maps_direct';
 
-  if (!forzarOSM && apiKey) {
-    // ── Modo Google Places API (New) ──
-    motorUtilizado = 'google';
+  if (apiKey && body.proveedor === 'google_api') {
+    // ── Modo Google Places API (con API Key de Cloud) ──
+    motorUtilizado = 'google_api';
     numConsultasGoogle = girosAProcesar.length;
     const usoInfo = await controlarUsoDiario(env, numConsultasGoogle);
     if (!usoInfo.permitido) {
       return new Response(
         JSON.stringify({
           ok: false,
-          error: `Has alcanzado el límite de seguridad diario (${usoInfo.limite} consultas) para proteger tu cuenta de Google. Vuelve a intentarlo mañana.`,
+          error: `Límite diario alcanzado (${usoInfo.limite} consultas).`,
           codigo: 'LIMITE_DIARIO_ALCANZADO',
           usoHoy: { usadas: usoInfo.usadas, limite: usoInfo.limite }
         }),
@@ -86,7 +85,7 @@ export async function onRequestPost({ request, env }) {
 
     const promesas = girosAProcesar.map(async (giro) => {
       try {
-        const lugares = await buscarLugaresGoogle({
+        return await buscarLugaresGoogle({
           lat,
           lng,
           radio,
@@ -94,16 +93,8 @@ export async function onRequestPost({ request, env }) {
           apiKey,
           giroClave: giro.clave
         });
-
-        if (lugares.length >= 20) {
-          avisos.push(
-            `${giro.etiqueta}: Google devolvió el tope de 20 resultados. Reduce el radio para mayor detalle local.`
-          );
-        }
-        return lugares;
       } catch (err) {
-        console.error(`Error buscando giro ${giro.clave} en Google:`, err);
-        avisos.push(`No se pudo consultar el giro ${giro.etiqueta} en Google: ${err.message}`);
+        console.error(`Error buscando giro ${giro.clave}:`, err);
         return [];
       }
     });
@@ -113,26 +104,36 @@ export async function onRequestPost({ request, env }) {
       todosLugares.push(...lista);
     }
   } else {
-    // ── Modo OpenStreetMap (100% Libre y Gratuito) ──
-    motorUtilizado = 'openstreetmap';
-    try {
+    // ── Modo Directo Google Maps (100% Gratuito, Place IDs ChIJ... reales y reseñas reales) ──
+    const promesas = girosAProcesar.map(async (giro) => {
+      try {
+        return await buscarGiroGooglePublico({
+          lat,
+          lng,
+          radio,
+          giroClave: giro.clave
+        });
+      } catch (err) {
+        console.warn(`Aviso buscando giro ${giro.clave} en Google Maps directo:`, err.message);
+        return [];
+      }
+    });
+
+    const resultados = await Promise.all(promesas);
+    for (const lista of resultados) {
+      todosLugares.push(...lista);
+    }
+
+    // Fallback a OpenStreetMap únicamente si Google Maps directo no devolvió resultados por red
+    if (todosLugares.length === 0 && body.proveedor === 'osm') {
+      motorUtilizado = 'openstreetmap';
       const claves = girosAProcesar.map((g) => g.clave);
-      todosLugares = await buscarLugaresOSM({ lat, lng, radio, giros: claves });
-      avisos.push('Búsqueda realizada con OpenStreetMap (100% Gratuito y Libre).');
-    } catch (err) {
-      console.error('Error buscando en OpenStreetMap:', err);
-      return new Response(
-        JSON.stringify({
-          ok: false,
-          error: `Error al consultar comercios en OpenStreetMap: ${err.message}`,
-          codigo: 'ERROR_OSM'
-        }),
-        { status: 502, headers: { 'Content-Type': 'application/json; charset=utf-8' } }
-      );
+      const osmLugares = await buscarLugaresOSM({ lat, lng, radio, giros: claves }).catch(() => []);
+      todosLugares.push(...osmLugares);
     }
   }
 
-  // Deduplicar por placeId y filtrar cerrados
+  // Deduplicar por placeId y filtrar cerrados permanentemente
   const vistos = new Set();
   const lugaresDeduplicados = [];
 

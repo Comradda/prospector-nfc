@@ -1,13 +1,12 @@
 /**
  * Catálogo oficial de giros objetivo para prospectar clientes de tarjetas NFC.
- * Cada giro agrupa tipos válidos de Google Places API (New) Table A.
+ * Sin emojis para mantener una estética limpia y ejecutiva.
  */
 
 export const GIROS = Object.freeze([
   {
     clave: 'restaurantes',
     etiqueta: 'Restaurantes',
-    emoji: '🍽️',
     googleTypes: [
       'restaurant',
       'mexican_restaurant',
@@ -21,31 +20,26 @@ export const GIROS = Object.freeze([
   {
     clave: 'cafeterias',
     etiqueta: 'Cafeterías',
-    emoji: '☕',
     googleTypes: ['cafe', 'coffee_shop']
   },
   {
     clave: 'barberias',
     etiqueta: 'Barberías',
-    emoji: '💈',
     googleTypes: ['barber_shop']
   },
   {
     clave: 'esteticas',
-    etiqueta: 'Estéticas y uñas',
-    emoji: '💅',
+    etiqueta: 'Estéticas y salones',
     googleTypes: ['hair_salon', 'beauty_salon', 'nail_salon', 'spa']
   },
   {
     clave: 'comida_rapida',
     etiqueta: 'Taquerías y comida rápida',
-    emoji: '🌮',
     googleTypes: ['fast_food_restaurant', 'taco_restaurant']
   },
   {
     clave: 'consultorios',
-    etiqueta: 'Consultorios',
-    emoji: '🩺',
+    etiqueta: 'Consultorios y clínicas',
     googleTypes: [
       'dentist',
       'dental_clinic',
@@ -64,7 +58,7 @@ export function obtenerGiroPorClave(clave) {
 }
 
 export function obtenerCatalogoGiros() {
-  return GIROS.map(({ clave, etiqueta, emoji }) => ({ clave, etiqueta, emoji }));
+  return GIROS.map(({ clave, etiqueta }) => ({ clave, etiqueta }));
 }
 
 /**

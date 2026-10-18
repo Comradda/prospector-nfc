@@ -1,182 +1,270 @@
 /**
- * Integración con Google Maps JavaScript API.
- * Cumple estrictamente con los Términos de Servicio de Google:
- * Solo muestra datos de Places sobre el mapa oficial de Google Maps si existe GOOGLE_MAPS_BROWSER_KEY.
+ * Prospector NFC · Motor de Mapa Interactivo Minimalista
+ * Funciona de forma 100% inmediata y gratuita usando Leaflet + CartoDB Positron (paleta blanca arquitectónica),
+ * mostrando la ubicación del vendedor, radio de cobertura, prospectos por prioridad y trazo de ruta.
  */
 
-let googleMapsCargado = false;
-let cargandoScript = false;
 let mapaInstancia = null;
-let marcadores = [];
+let capaMarcadores = null;
+let capaRuta = null;
 let marcadorUsuario = null;
+let circuloRadio = null;
+let leafletCargado = false;
+let promesaCarga = null;
+
+const CENTRO_DEFECTO = { lat: 19.4326, lng: -99.1332 }; // CDMX Centro
 
 /**
- * Carga de forma asíncrona la Google Maps JavaScript API.
- * @param {string} apiKey
+ * Carga dinámicamente Leaflet (CSS + JS) si aún no está presente en el documento.
  * @returns {Promise<boolean>}
  */
-export async function cargarGoogleMapsScript(apiKey) {
-  if (googleMapsCargado) return true;
-  if (!apiKey) return false;
+export async function asegurarMotorMapa() {
+  if (leafletCargado && window.L) return true;
+  if (promesaCarga) return promesaCarga;
 
-  if (cargandoScript) {
-    return new Promise((resolve) => {
-      const interval = setInterval(() => {
-        if (googleMapsCargado) {
-          clearInterval(interval);
-          resolve(true);
-        }
-      }, 100);
-    });
-  }
-
-  cargandoScript = true;
-
-  return new Promise((resolve, reject) => {
-    window.__initGoogleMapCallback = () => {
-      googleMapsCargado = true;
-      cargandoScript = false;
-      delete window.__initGoogleMapCallback;
+  promesaCarga = new Promise((resolve) => {
+    if (window.L) {
+      leafletCargado = true;
       resolve(true);
-    };
+      return;
+    }
+
+    if (!document.getElementById('leaflet-css')) {
+      const link = document.createElement('link');
+      link.id = 'leaflet-css';
+      link.rel = 'stylesheet';
+      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      document.head.appendChild(link);
+    }
 
     const script = document.createElement('script');
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(
-      apiKey
-    )}&callback=__initGoogleMapCallback&loading=async`;
+    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
     script.async = true;
-    script.defer = true;
-    script.onerror = (e) => {
-      cargandoScript = false;
-      console.warn('No se pudo cargar Google Maps JavaScript API:', e);
+    script.onload = () => {
+      leafletCargado = true;
+      resolve(true);
+    };
+    script.onerror = () => {
+      console.warn('No se pudo cargar la librería de mapas.');
+      promesaCarga = null;
       resolve(false);
     };
     document.head.appendChild(script);
   });
+
+  return promesaCarga;
 }
 
 /**
- * Inicializa el contenedor del mapa.
+ * Inicializa el mapa en el contenedor indicado.
  * @param {HTMLElement} contenedor
- * @param {{lat: number, lng: number}} centro
+ * @param {{lat: number, lng: number}} [centro]
  */
-export function inicializarMapa(contenedor, centro) {
-  if (!googleMapsCargado || !window.google?.maps) return null;
+export async function inicializarMapa(contenedor, centro = CENTRO_DEFECTO) {
+  if (!contenedor) return null;
+  const ok = await asegurarMotorMapa();
+  if (!ok || !window.L) return null;
 
-  mapaInstancia = new window.google.maps.Map(contenedor, {
-    center: centro,
+  if (mapaInstancia) {
+    setTimeout(() => mapaInstancia.invalidateSize(), 60);
+    return mapaInstancia;
+  }
+
+  // Limpiar cualquier mensaje estático previo dentro del contenedor
+  contenedor.innerHTML = '';
+
+  const L = window.L;
+  const coords =
+    centro && typeof centro.lat === 'number' && typeof centro.lng === 'number'
+      ? [centro.lat, centro.lng]
+      : [CENTRO_DEFECTO.lat, CENTRO_DEFECTO.lng];
+
+  mapaInstancia = L.map(contenedor, {
+    center: coords,
     zoom: 15,
-    disableDefaultUI: false,
-    zoomControl: true,
-    mapTypeControl: false,
-    streetViewControl: false,
-    fullscreenControl: false,
-    styles: [
-      { featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] }
-    ]
+    zoomControl: false,
+    attributionControl: true
   });
+
+  // Control de zoom en esquina inferior derecha (fácil alcance con el pulgar)
+  L.control.zoom({ position: 'bottomright' }).addTo(mapaInstancia);
+
+  // CartoDB Positron (diseño blanco minimalista de alta legibilidad)
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; OpenStreetMap &copy; CARTO',
+    subdomains: 'abcd',
+    maxZoom: 20
+  }).addTo(mapaInstancia);
+
+  capaRuta = L.layerGroup().addTo(mapaInstancia);
+  capaMarcadores = L.layerGroup().addTo(mapaInstancia);
+
+  setTimeout(() => {
+    if (mapaInstancia) mapaInstancia.invalidateSize();
+  }, 100);
 
   return mapaInstancia;
 }
 
 /**
- * Centra el mapa en una coordenada.
+ * Recalcula dimensiones del mapa cuando la pestaña se hace visible.
+ */
+export function refrescarTamanoMapa() {
+  if (!mapaInstancia) return;
+  setTimeout(() => {
+    mapaInstancia.invalidateSize({ animate: false });
+  }, 50);
+}
+
+/**
+ * Centra el mapa en una coordenada específica.
  * @param {number} lat
  * @param {number} lng
  * @param {number} [zoom]
  */
 export function centrarEn(lat, lng, zoom = 16) {
-  if (!mapaInstancia) return;
-  mapaInstancia.panTo({ lat, lng });
-  if (zoom) mapaInstancia.setZoom(zoom);
+  if (!mapaInstancia || typeof lat !== 'number' || typeof lng !== 'number') return;
+  mapaInstancia.setView([lat, lng], zoom, { animate: true });
 }
 
 /**
- * Genera el SVG del pin coloreado según la prioridad.
- * @param {'alta'|'media'|'baja'} prioridad
+ * Dibuja o actualiza la posición actual del vendedor y su radio de búsqueda.
+ * @param {{lat: number, lng: number}} pos
+ * @param {number} [radioMetros]
  */
-function iconoPinSvg(prioridad) {
-  const color =
-    prioridad === 'alta' ? '#10B981' : prioridad === 'media' ? '#F59E0B' : '#64748B';
+export function pintarUbicacionUsuario(pos, radioMetros = 800) {
+  if (!mapaInstancia || !window.L || !pos || typeof pos.lat !== 'number') return;
+  const L = window.L;
 
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 48" width="36" height="48">
-    <path d="M18 0C8.06 0 0 8.06 0 18c0 13.5 18 30 18 30s18-16.5 18-30C36 8.06 27.94 0 18 0z" fill="${color}" stroke="#FFFFFF" stroke-width="2"/>
-    <circle cx="18" cy="18" r="7" fill="#FFFFFF"/>
-  </svg>`;
+  if (marcadorUsuario) {
+    marcadorUsuario.setLatLng([pos.lat, pos.lng]);
+  } else {
+    const iconoUsuario = L.divIcon({
+      className: 'map-user-pin-wrapper',
+      html: `<div class="map-user-dot"><div class="map-user-pulse"></div></div>`,
+      iconSize: [24, 24],
+      iconAnchor: [12, 12]
+    });
+    marcadorUsuario = L.marker([pos.lat, pos.lng], {
+      icon: iconoUsuario,
+      zIndexOffset: 1000
+    })
+      .bindTooltip('Tu ubicación actual', { direction: 'top', offset: [0, -10] })
+      .addTo(mapaInstancia);
+  }
 
-  return {
-    url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
-    scaledSize: new window.google.maps.Size(32, 42),
-    anchor: new window.google.maps.Point(16, 42)
-  };
+  if (circuloRadio) {
+    circuloRadio.setLatLng([pos.lat, pos.lng]);
+    circuloRadio.setRadius(radioMetros);
+  } else {
+    circuloRadio = L.circle([pos.lat, pos.lng], {
+      radius: radioMetros,
+      color: '#09090B',
+      weight: 1,
+      dashArray: '4 4',
+      fillColor: '#09090B',
+      fillOpacity: 0.03,
+      interactive: false
+    }).addTo(mapaInstancia);
+  }
 }
 
 /**
- * Actualiza los marcadores de los negocios en el mapa.
+ * Dibuja los marcadores de los comercios con etiqueta de reseñas y color de prioridad.
  * @param {Array<any>} lugares
  * @param {Function} onSelectLugar
  */
 export function pintarLugaresEnMapa(lugares, onSelectLugar) {
-  if (!mapaInstancia || !window.google?.maps) return;
+  if (!mapaInstancia || !window.L || !capaMarcadores) return;
+  const L = window.L;
 
-  // Limpiar marcadores anteriores
-  for (const m of marcadores) {
-    m.setMap(null);
-  }
-  marcadores = [];
+  capaMarcadores.clearLayers();
+  if (!Array.isArray(lugares) || lugares.length === 0) return;
 
-  const bounds = new window.google.maps.LatLngBounds();
+  const puntos = [];
 
   for (const l of lugares) {
     if (typeof l.lat !== 'number' || typeof l.lng !== 'number') continue;
+    puntos.push([l.lat, l.lng]);
 
-    const pos = { lat: l.lat, lng: l.lng };
-    bounds.extend(pos);
+    const prio = l.prioridad || 'baja';
+    const numResenas = typeof l.resenas === 'number' ? l.resenas : 0;
+    const textoPin = numResenas > 99 ? '99+' : String(numResenas);
 
-    const marker = new window.google.maps.Marker({
-      position: pos,
-      map: mapaInstancia,
-      title: l.nombre,
-      icon: iconoPinSvg(l.prioridad || 'baja')
+    const icono = L.divIcon({
+      className: 'map-prospect-pin-wrapper',
+      html: `
+        <div class="map-prospect-pin prio-${prio}">
+          <span class="map-prospect-count">${textoPin}</span>
+        </div>
+      `,
+      iconSize: [34, 34],
+      iconAnchor: [17, 17]
     });
 
-    marker.addListener('click', () => {
+    const marker = L.marker([l.lat, l.lng], {
+      icon: icono,
+      zIndexOffset: prio === 'alta' ? 500 : prio === 'media' ? 300 : 100
+    });
+
+    marker.on('click', () => {
       if (typeof onSelectLugar === 'function') {
         onSelectLugar(l);
       }
     });
 
-    marcadores.push(marker);
+    capaMarcadores.addLayer(marker);
   }
 
-  if (lugares.length > 0 && !bounds.isEmpty()) {
-    mapaInstancia.fitBounds(bounds, { top: 50, bottom: 50, left: 50, right: 50 });
+  if (marcadorUsuario) {
+    const uPos = marcadorUsuario.getLatLng();
+    puntos.push([uPos.lat, uPos.lng]);
+  }
+
+  if (puntos.length > 0) {
+    const bounds = L.latLngBounds(puntos);
+    mapaInstancia.fitBounds(bounds, { padding: [36, 36], maxZoom: 17 });
   }
 }
 
 /**
- * Dibuja o actualiza la posición del usuario.
- * @param {{lat: number, lng: number}} pos
+ * Dibuja la línea de la ruta de visitas seleccionadas sobre el mapa.
+ * @param {{lat: number, lng: number}|null} origen
+ * @param {Array<any>} paradasOrdenadas
  */
-export function pintarUbicacionUsuario(pos) {
-  if (!mapaInstancia || !window.google?.maps) return;
+export function pintarTrazoRutaEnMapa(origen, paradasOrdenadas) {
+  if (!mapaInstancia || !window.L || !capaRuta) return;
+  const L = window.L;
 
-  if (!marcadorUsuario) {
-    marcadorUsuario = new window.google.maps.Marker({
-      position: pos,
-      map: mapaInstancia,
-      title: 'Tu ubicación',
-      zIndex: 999,
-      icon: {
-        path: window.google.maps.SymbolPath.CIRCLE,
-        scale: 8,
-        fillColor: '#3B82F6',
-        fillOpacity: 1,
-        strokeColor: '#FFFFFF',
-        strokeWeight: 3
-      }
-    });
-  } else {
-    marcadorUsuario.setPosition(pos);
+  capaRuta.clearLayers();
+  if (!Array.isArray(paradasOrdenadas) || paradasOrdenadas.length === 0) return;
+
+  const coords = [];
+  if (origen && typeof origen.lat === 'number' && typeof origen.lng === 'number') {
+    coords.push([origen.lat, origen.lng]);
+  }
+
+  paradasOrdenadas.forEach((p, idx) => {
+    if (typeof p.lat === 'number' && typeof p.lng === 'number') {
+      coords.push([p.lat, p.lng]);
+      const badgeParada = L.divIcon({
+        className: 'map-route-step-wrapper',
+        html: `<div class="map-route-step-badge">${idx + 1}</div>`,
+        iconSize: [22, 22],
+        iconAnchor: [-10, 24]
+      });
+      L.marker([p.lat, p.lng], { icon: badgeParada, interactive: false, zIndexOffset: 800 }).addTo(
+        capaRuta
+      );
+    }
+  });
+
+  if (coords.length >= 2) {
+    L.polyline(coords, {
+      color: '#09090B',
+      weight: 2.5,
+      dashArray: '6 6',
+      opacity: 0.75
+    }).addTo(capaRuta);
   }
 }

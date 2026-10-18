@@ -1,7 +1,8 @@
 /**
- * Prospector NFC · Controlador Principal de la Aplicación Móvil
- * Orquesta la búsqueda, puntuación de negocios, detección de plazas,
- * generación de links para NFC Tools, mapa interactivo y armado de rutas.
+ * Prospector NFC · Controlador Principal de la Interfaz Minimalista
+ * Orquesta la búsqueda en tiempo real, priorización por necesidad de reseñas,
+ * detección de plazas pequeñas, extracción del Place ID (ChIJ...) para NFC Tools,
+ * mapa interactivo y optimización de rutas 2-opt.
  */
 
 import {
@@ -19,16 +20,31 @@ import {
   urlComoLlegar,
   urlsRutaCompleta,
   linkResena,
+  extraerPlaceId,
   duracionTexto,
   distanciaTexto
 } from './ruta.js';
 
 import {
-  cargarGoogleMapsScript,
   inicializarMapa,
+  refrescarTamanoMapa,
+  centrarEn,
   pintarLugaresEnMapa,
-  pintarUbicacionUsuario
+  pintarUbicacionUsuario,
+  pintarTrazoRutaEnMapa
 } from './mapa.js';
+
+/* ───────────────────────────── Iconos SVG ───────────────────────────── */
+
+const ICONOS = {
+  copy: `<svg class="icon icon-sm" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`,
+  check: `<svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>`,
+  plus: `<svg class="icon icon-sm" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
+  navigation: `<svg class="icon icon-sm" viewBox="0 0 24 24"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>`,
+  external: `<svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`,
+  radar: `<svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>`,
+  nfc: `<svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M6 8v8"/><circle cx="10" cy="12" r="1.5" fill="currentColor" stroke="none"/><path d="M13.5 9.5a3.5 3.5 0 0 1 0 5"/><path d="M16.5 7a7 7 0 0 1 0 10"/></svg>`
+};
 
 /* ───────────────────────────── Estado Global ───────────────────────────── */
 
@@ -36,14 +52,21 @@ const estado = {
   config: null,
   ubicacion: null, // { lat, lng }
   radio: 800,
-  giros: new Set(['restaurantes', 'cafeterias', 'barberias', 'esteticas', 'comida_rapida', 'consultorios']),
+  giros: new Set([
+    'restaurantes',
+    'cafeterias',
+    'barberias',
+    'esteticas',
+    'comida_rapida',
+    'consultorios'
+  ]),
   lugaresPuntuados: [],
   filtroPrioridad: 'alta_media', // 'alta_media' | 'todos'
   filtroSoloPlazas: false,
   paradasRuta: [],
   bitacoraVisitas: {}, // { [placeId]: { estado: 'vendido'|'interesado'|'no', fecha: string } }
+  modoRutaGlobal: 'walking', // 'walking' | 'transit' | 'driving'
   lugarActivo: null,
-  mapaListo: false,
   tabActivo: 'buscar'
 };
 
@@ -54,45 +77,40 @@ document.addEventListener('DOMContentLoaded', async () => {
   inicializarPWA();
   configurarEventosUI();
 
-  // Escuchar errores 401 para desplegar modal de código
   suscribirErrorAutenticacion(() => {
     mostrarModalAcceso(true);
   });
 
-  // Cargar configuración del servidor
+  // Inicializar el mapa interactivo para que esté listo al cambiar de pestaña
+  const mapEl = document.getElementById('mapaContainer');
+  if (mapEl) {
+    inicializarMapa(mapEl, estado.ubicacion || { lat: 19.4326, lng: -99.1332 });
+  }
+
   try {
     estado.config = await obtenerConfiguracion();
     actualizarCatalogoGirosUI();
 
-    if (estado.config.requiereCodigo && !obtenerCodigoGuardado()) {
+    if (estado.config?.requiereCodigo && !obtenerCodigoGuardado()) {
       mostrarModalAcceso(true);
     }
-
-    // Inicializar Google Maps si hay API key de navegador disponible
-    if (estado.config.mapsBrowserKey) {
-      cargarGoogleMapsScript(estado.config.mapsBrowserKey).then((cargado) => {
-        if (cargado) {
-          const mapEl = document.getElementById('mapaContainer');
-          if (mapEl) {
-            inicializarMapa(mapEl, { lat: 19.4326, lng: -99.1332 });
-            estado.mapaListo = true;
-          }
-        }
-      });
-    }
   } catch (err) {
-    console.error('Error inicial:', err);
+    console.error('Error cargando configuración:', err);
   }
 
-  // Si hay resultados previos en sessionStorage, restaurarlos
+  // Restaurar última búsqueda de la sesión solo si contiene Place IDs reales (ChIJ...)
   const guardados = sessionStorage.getItem('prospector_ultimos_lugares');
   const guardadaUbicacion = sessionStorage.getItem('prospector_ubicacion');
   if (guardados && guardadaUbicacion) {
     try {
-      estado.ubicacion = JSON.parse(guardadaUbicacion);
       const lugares = JSON.parse(guardados);
-      procesarYMostrarLugares(lugares);
-      actualizarIndicadorGps('GPS Guardado');
+      if (Array.isArray(lugares) && lugares.length > 0 && String(lugares[0].placeId || '').startsWith('ChIJ')) {
+        estado.ubicacion = JSON.parse(guardadaUbicacion);
+        procesarYMostrarLugares(lugares);
+        actualizarIndicadorGps('Ubicación activa', true);
+      } else {
+        sessionStorage.removeItem('prospector_ultimos_lugares');
+      }
     } catch {}
   }
 });
@@ -108,11 +126,14 @@ function cargarEstadoPersistido() {
     if (bGuardada) estado.bitacoraVisitas = JSON.parse(bGuardada);
 
     const gGuardados = localStorage.getItem('prospector_giros');
-    if (gGuardados) estado.giros = new Set(JSON.parse(gGuardados));
+    if (gGuardados) {
+      const arr = JSON.parse(gGuardados);
+      if (Array.isArray(arr) && arr.length > 0) estado.giros = new Set(arr);
+    }
 
     actualizarBadgeRuta();
   } catch (e) {
-    console.warn('Error leyendo localStorage:', e);
+    console.warn('Error leyendo almacenamiento local:', e);
   }
 }
 
@@ -120,11 +141,12 @@ function guardarRutaPersistida() {
   localStorage.setItem('prospector_ruta', JSON.stringify(estado.paradasRuta));
   localStorage.setItem('prospector_visitas', JSON.stringify(estado.bitacoraVisitas));
   actualizarBadgeRuta();
+  pintarTrazoRutaEnMapa(estado.ubicacion, estado.paradasRuta);
 }
 
-/* ───────────────────────────── UI & Tabs ───────────────────────────── */
+/* ───────────────────────────── Navegación de Vistas ───────────────────────────── */
 
-function cambiarTab(nuevoTab) {
+async function cambiarTab(nuevoTab) {
   estado.tabActivo = nuevoTab;
 
   document.querySelectorAll('.view-section').forEach((s) => s.classList.remove('active'));
@@ -138,32 +160,53 @@ function cambiarTab(nuevoTab) {
   if (nuevoTab === 'ruta') {
     renderizarVistaRuta();
   } else if (nuevoTab === 'mapa') {
-    if (estado.mapaListo && estado.lugaresPuntuados.length > 0) {
+    const mapEl = document.getElementById('mapaContainer');
+    await inicializarMapa(mapEl, estado.ubicacion || { lat: 19.4326, lng: -99.1332 });
+    refrescarTamanoMapa();
+    if (estado.ubicacion) {
+      pintarUbicacionUsuario(estado.ubicacion, estado.radio);
+    }
+    if (estado.lugaresPuntuados.length > 0) {
       pintarLugaresEnMapa(estado.lugaresPuntuados, (l) => abrirDetalleLugar(l));
     }
+    pintarTrazoRutaEnMapa(estado.ubicacion, estado.paradasRuta);
   }
 }
 
 function configurarEventosUI() {
-  // Tabs inferiores
   document.getElementById('tabBtn-buscar')?.addEventListener('click', () => cambiarTab('buscar'));
   document.getElementById('tabBtn-mapa')?.addEventListener('click', () => cambiarTab('mapa'));
   document.getElementById('tabBtn-ruta')?.addEventListener('click', () => cambiarTab('ruta'));
 
-  // Botón principal de búsqueda GPS
   document.getElementById('btnBuscarGps')?.addEventListener('click', iniciarBusquedaConGps);
 
-  // Chips de radio
+  // Botón centrar mapa en ubicación del vendedor
+  document.getElementById('btnCentrarMapa')?.addEventListener('click', () => {
+    if (estado.ubicacion) {
+      centrarEn(estado.ubicacion.lat, estado.ubicacion.lng, 16);
+    } else {
+      iniciarBusquedaConGps();
+    }
+  });
+
+  // Selector de radio
   document.querySelectorAll('.chip-radio').forEach((btn) => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.chip-radio').forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
       estado.radio = parseInt(btn.dataset.radio, 10) || 800;
-      actualizarConteoConsultas();
+      const lbl = document.getElementById('radioActivoLabel');
+      if (lbl) lbl.textContent = btn.textContent;
+      if (estado.ubicacion) {
+        pintarUbicacionUsuario(estado.ubicacion, estado.radio);
+      }
+      if (estado.lugaresPuntuados.length > 0) {
+        filtrarYRenderizarLista();
+      }
     });
   });
 
-  // Filtros de resultados
+  // Filtros de lista
   document.getElementById('btnFiltroPrioridad')?.addEventListener('click', () => {
     estado.filtroPrioridad = 'alta_media';
     actualizarBotonesFiltro();
@@ -182,14 +225,31 @@ function configurarEventosUI() {
     filtrarYRenderizarLista();
   });
 
-  // Cerrar bottom sheet
+  // Modo de transporte en vista Ruta
+  document.querySelectorAll('#rutaModoSelector .travel-mode-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document
+        .querySelectorAll('#rutaModoSelector .travel-mode-btn')
+        .forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      estado.modoRutaGlobal = btn.dataset.modo || 'walking';
+    });
+  });
+
+  // Cerrar hoja de detalle
   document.getElementById('sheetOverlay')?.addEventListener('click', (e) => {
     if (e.target.id === 'sheetOverlay' || e.target.classList.contains('sheet-drag-handle')) {
       cerrarDetalleLugar();
     }
   });
+  document.getElementById('btnCerrarSheet')?.addEventListener('click', cerrarDetalleLugar);
 
-  // Modal de autenticación
+  // Cerrar con tecla Escape
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && estado.lugarActivo) cerrarDetalleLugar();
+  });
+
+  // Modal de acceso
   document.getElementById('btnGuardarPin')?.addEventListener('click', async () => {
     const input = document.getElementById('inputPinAcceso');
     const pin = (input?.value || '').trim();
@@ -198,7 +258,7 @@ function configurarEventosUI() {
     try {
       await validarAcceso(pin);
       mostrarModalAcceso(false);
-      mostrarToast('Código verificado con éxito');
+      mostrarToast('Acceso verificado');
     } catch (err) {
       alert(err.message || 'Código incorrecto');
     }
@@ -216,22 +276,34 @@ function actualizarBotonesFiltro() {
 
 function actualizarCatalogoGirosUI() {
   const cont = document.getElementById('girosChipsContainer');
-  if (!cont || !estado.config?.giros) return;
+  if (!cont) return;
+
+  const catalogo =
+    Array.isArray(estado.config?.giros) && estado.config.giros.length > 0
+      ? estado.config.giros
+      : [
+          { clave: 'restaurantes', etiqueta: 'Restaurantes' },
+          { clave: 'cafeterias', etiqueta: 'Cafeterías' },
+          { clave: 'barberias', etiqueta: 'Barberías' },
+          { clave: 'esteticas', etiqueta: 'Estéticas y salones' },
+          { clave: 'comida_rapida', etiqueta: 'Taquerías y comida rápida' },
+          { clave: 'consultorios', etiqueta: 'Consultorios y clínicas' }
+        ];
 
   cont.innerHTML = '';
 
-  for (const g of estado.config.giros) {
+  for (const g of catalogo) {
     const chip = document.createElement('button');
     chip.type = 'button';
     chip.className = `chip-selectable ${estado.giros.has(g.clave) ? 'active' : ''}`;
-    chip.textContent = `${g.emoji} ${g.etiqueta}`;
+    chip.textContent = g.etiqueta;
     chip.addEventListener('click', () => {
       if (estado.giros.has(g.clave)) {
         if (estado.giros.size > 1) {
           estado.giros.delete(g.clave);
           chip.classList.remove('active');
         } else {
-          mostrarToast('Debes seleccionar al menos un giro');
+          mostrarToast('Mantén al menos un giro activo');
         }
       } else {
         estado.giros.add(g.clave);
@@ -249,11 +321,7 @@ function actualizarConteoConsultas() {
   const infoEl = document.getElementById('queryUsageInfo');
   if (!infoEl) return;
   const cant = estado.giros.size;
-  if (!estado.config?.tieneGoogleKey) {
-    infoEl.textContent = `Búsqueda libre con OpenStreetMap (${cant} giro${cant === 1 ? '' : 's'} · 100% Gratuita e Ilimitada).`;
-  } else {
-    infoEl.textContent = `Esta búsqueda utilizará ${cant} consulta${cant === 1 ? '' : 's'} a Google Places.`;
-  }
+  infoEl.textContent = `${cant} ${cant === 1 ? 'giro activo' : 'giros activos'}`;
 }
 
 /* ───────────────────────────── Geolocalización & Búsqueda ───────────────────────────── */
@@ -262,16 +330,16 @@ async function iniciarBusquedaConGps() {
   const btn = document.getElementById('btnBuscarGps');
   if (btn) {
     btn.disabled = true;
-    btn.innerHTML = '<span>Obteniendo ubicación...</span>';
+    btn.innerHTML = `<span>Obteniendo coordenadas GPS...</span>`;
   }
 
   if (!navigator.geolocation) {
-    alert('Tu dispositivo o navegador no soporta geolocalización.');
+    alert('Tu navegador no permite geolocalización.');
     restaurarBotonBuscar();
     return;
   }
 
-  actualizarIndicadorGps('Localizando...');
+  actualizarIndicadorGps('Localizando...', false);
 
   navigator.geolocation.getCurrentPosition(
     async (pos) => {
@@ -280,9 +348,9 @@ async function iniciarBusquedaConGps() {
         lng: pos.coords.longitude
       };
       sessionStorage.setItem('prospector_ubicacion', JSON.stringify(estado.ubicacion));
-      actualizarIndicadorGps('GPS Activo');
+      actualizarIndicadorGps('Ubicación activa', true);
 
-      if (btn) btn.innerHTML = '<span>Consultando negocios reales...</span>';
+      if (btn) btn.innerHTML = `<span>Analizando comercios y reseñas...</span>`;
       mostrarSkeletons();
 
       try {
@@ -295,29 +363,25 @@ async function iniciarBusquedaConGps() {
 
         sessionStorage.setItem('prospector_ultimos_lugares', JSON.stringify(respuesta.lugares));
         procesarYMostrarLugares(respuesta.lugares);
-
-        if (Array.isArray(respuesta.avisos) && respuesta.avisos.length > 0) {
-          mostrarToast(respuesta.avisos[0]);
-        }
       } catch (err) {
-        console.error('Error buscando lugares:', err);
-        alert(err.message || 'No se pudieron consultar los lugares');
+        console.error('Error en búsqueda:', err);
+        alert(err.message || 'No se pudieron consultar los comercios cercanos.');
       } finally {
         restaurarBotonBuscar();
       }
     },
     (err) => {
       console.warn('Error GPS:', err);
-      actualizarIndicadorGps('Sin GPS');
+      actualizarIndicadorGps('Sin señal GPS', false);
       restaurarBotonBuscar();
-      let msg = 'No se pudo obtener tu ubicación.';
+      let msg = 'No se pudo obtener tu ubicación actual.';
       if (err.code === 1) {
         msg =
-          'Permiso de ubicación denegado. En iPhone o Android, ve a los ajustes de tu navegador y activa "Permitir ubicación precisa".';
+          'Permiso de ubicación denegado. Activa el permiso de ubicación en la barra de dirección de tu navegador.';
       }
       alert(msg);
     },
-    { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 }
+    { enableHighAccuracy: true, timeout: 14000, maximumAge: 30000 }
   );
 }
 
@@ -325,35 +389,35 @@ function restaurarBotonBuscar() {
   const btn = document.getElementById('btnBuscarGps');
   if (btn) {
     btn.disabled = false;
-    btn.innerHTML = '<span>📍 Buscar cerca de mí</span>';
+    btn.innerHTML = `${ICONOS.radar}<span>Escanear comercios cercanos</span>`;
   }
 }
 
-function actualizarIndicadorGps(texto) {
-  const el = document.getElementById('gpsIndicator');
-  if (el) {
-    el.textContent = texto;
-    el.className = `chip-status ${texto.includes('Activo') ? 'gps-on' : ''}`;
-  }
+function actualizarIndicadorGps(texto, activo = false) {
+  const chip = document.getElementById('gpsIndicator');
+  const txt = document.getElementById('gpsIndicatorText');
+  if (txt) txt.textContent = texto;
+  if (chip) chip.classList.toggle('gps-on', Boolean(activo));
 }
 
-/* ───────────────────────────── Procesamiento & Scoring ───────────────────────────── */
+/* ───────────────────────────── Procesamiento & Renderizado ───────────────────────────── */
 
 function procesarYMostrarLugares(lugaresBrutos) {
-  // Aplicar el algoritmo matemático puro de puntuación y detección de plazas
   estado.lugaresPuntuados = puntuar(lugaresBrutos, estado.ubicacion, { radio: estado.radio });
 
-  // Actualizar mapa si está listo
-  if (estado.mapaListo) {
-    pintarLugaresEnMapa(estado.lugaresPuntuados, (l) => abrirDetalleLugar(l));
-    pintarUbicacionUsuario(estado.ubicacion);
+  if (estado.ubicacion) {
+    pintarUbicacionUsuario(estado.ubicacion, estado.radio);
   }
+  pintarLugaresEnMapa(estado.lugaresPuntuados, (l) => abrirDetalleLugar(l));
+  pintarTrazoRutaEnMapa(estado.ubicacion, estado.paradasRuta);
 
   filtrarYRenderizarLista();
 }
 
 function filtrarYRenderizarLista() {
   const cont = document.getElementById('lugaresListaContainer');
+  const summaryBar = document.getElementById('resultsSummaryBar');
+  const countText = document.getElementById('resultsCountText');
   if (!cont) return;
 
   let filtrados = estado.lugaresPuntuados;
@@ -366,12 +430,18 @@ function filtrarYRenderizarLista() {
     filtrados = filtrados.filter((l) => l.plaza && l.plaza.tipo === 'chica');
   }
 
+  if (summaryBar && countText) {
+    summaryBar.style.display = estado.lugaresPuntuados.length > 0 ? 'flex' : 'none';
+    countText.textContent = `${filtrados.length} de ${estado.lugaresPuntuados.length} comercios`;
+  }
+
   if (filtrados.length === 0) {
     cont.innerHTML = `
-      <div style="text-align: center; padding: 40px 16px; color: var(--text-dim);">
-        <p style="font-size: 2rem; margin-bottom: 8px;">🔍</p>
-        <p style="font-weight: 700; color: var(--text-muted);">No hay prospectos con este filtro</p>
-        <p style="font-size: 0.88rem; margin-top: 4px;">Prueba seleccionar "Todos" o ampliar el radio de búsqueda.</p>
+      <div class="empty-state-box">
+        <p class="empty-state-title">Sin comercios bajo este filtro</p>
+        <p class="empty-state-desc">
+          Cambia la vista a <strong>Todos los comercios</strong>, desactiva el filtro de plazas o amplía el radio de búsqueda.
+        </p>
       </div>
     `;
     return;
@@ -380,58 +450,113 @@ function filtrarYRenderizarLista() {
   cont.innerHTML = '';
 
   for (const l of filtrados) {
-    const card = document.createElement('div');
+    const card = document.createElement('article');
     card.className = 'card-lugar';
 
-    const prioLabel = l.prioridad === 'alta' ? 'Alta' : l.prioridad === 'media' ? 'Media' : 'Baja';
-    const prioClase = l.prioridad;
+    const prioTexto =
+      l.prioridad === 'alta'
+        ? `Alta · ${l.puntaje} pts`
+        : l.prioridad === 'media'
+        ? `Media · ${l.puntaje} pts`
+        : `Baja · ${l.puntaje} pts`;
 
-    let resenasTxt = `${l.resenas} reseñas`;
-    let resenasAlertaClase = '';
-    if (l.resenas === 0) {
-      resenasTxt = '0 reseñas ¡URGE!';
-      resenasAlertaClase = 'alerta';
-    } else if (l.resenas <= 5) {
-      resenasTxt = `Solo ${l.resenas} reseñas`;
-      resenasAlertaClase = 'alerta';
-    }
-
-    const ratingTxt = l.calificacion ? `★ ${l.calificacion.toFixed(1)}` : '★ S/C';
     const distTxt = l.distancia !== null ? distanciaTexto(l.distancia) : '';
 
-    let plazaBadgeHtml = '';
-    if (l.plaza && l.plaza.tipo === 'chica') {
-      const cant = l.plaza.tamano >= 2 ? `${l.plaza.tamano} negocios` : 'plaza';
-      plazaBadgeHtml = `<span class="badge-plaza-chica">🏬 Plaza chica (${cant})</span>`;
-    }
+    // Métrica 1: Reseñas
+    const numResenas = typeof l.resenas === 'number' ? l.resenas : 0;
+    const textoResenas =
+      numResenas === 0
+        ? 'Sin reseñas'
+        : numResenas === 1
+        ? '1 reseña'
+        : `${numResenas.toLocaleString('es-MX')} reseñas`;
+    const esUrgente = numResenas <= 15;
+
+    // Métrica 2: Calificación
+    const textoCalif =
+      typeof l.calificacion === 'number' ? `${l.calificacion.toFixed(1)} / 5.0` : 'Sin calificar';
+
+    // Métrica 3: Tipo de ubicación / Plaza
+    const esPlazaChica = l.plaza && l.plaza.tipo === 'chica';
+    const textoUbicacion = esPlazaChica
+      ? `Plaza (${l.plaza.tamano} locales)`
+      : l.plaza?.tipo === 'grande'
+      ? 'Centro comercial'
+      : 'Local en calle';
 
     const motivosHtml = (l.motivos || [])
       .slice(0, 3)
       .map((m) => `<span class="pill-motivo">${escapeHtml(m)}</span>`)
       .join('');
 
+    const enRuta = estado.paradasRuta.some((p) => p.placeId === l.placeId);
+    const placeIdLimpio = extraerPlaceId(l.placeId);
+    const urlNfcDirecta = linkResena(placeIdLimpio);
+
     card.innerHTML = `
-      <div class="card-header-row">
-        <div>
-          <h3 class="card-title">${escapeHtml(l.nombre)}</h3>
-          <p class="card-giro">${escapeHtml(l.giro)}</p>
+      <div class="card-top-meta">
+        <div class="card-category-distance">
+          <span>${escapeHtml(l.giro || 'Comercio')}</span>
+          ${distTxt ? `<span class="meta-sep">·</span><span class="tabular">${escapeHtml(distTxt)}</span>` : ''}
         </div>
-        <span class="badge-prioridad ${prioClase}">${prioLabel}</span>
+        <span class="badge-prioridad ${l.prioridad} tabular">${prioTexto}</span>
       </div>
 
-      <div class="resenas-highlight-row">
-        <span class="star-rating">${ratingTxt}</span>
-        <span class="reviews-count-badge ${resenasAlertaClase}">${resenasTxt}</span>
-        <span class="distancia-text">${distTxt}</span>
+      <div class="card-header-main" data-action="detalle">
+        <h3 class="card-title">${escapeHtml(l.nombre)}</h3>
+        <p class="card-address">${escapeHtml(l.direccionCorta || l.direccion)}</p>
+      </div>
+
+      <div class="card-metrics-strip tabular" data-action="detalle">
+        <div class="metric-col">
+          <span class="metric-label">Reseñas Google</span>
+          <span class="metric-value ${esUrgente ? 'urgent' : ''}">${textoResenas}</span>
+        </div>
+        <div class="metric-col">
+          <span class="metric-label">Calificación</span>
+          <span class="metric-value">${textoCalif}</span>
+        </div>
+        <div class="metric-col">
+          <span class="metric-label">Agrupación</span>
+          <span class="metric-value ${esPlazaChica ? 'plaza-highlight' : ''}">${textoUbicacion}</span>
+        </div>
       </div>
 
       <div class="badges-container">
-        ${plazaBadgeHtml}
+        ${esPlazaChica ? `<span class="badge-plaza-chica">Plaza comercial pequeña (${l.plaza.tamano} negocios)</span>` : ''}
         ${motivosHtml}
+      </div>
+
+      <div class="card-quick-actions">
+        <button type="button" class="btn-card-action primary-nfc" data-action="copiar-nfc">
+          ${ICONOS.copy}
+          <span>Copiar link NFC</span>
+        </button>
+        <button type="button" class="btn-card-action ${enRuta ? 'in-route' : ''}" data-action="toggle-ruta">
+          ${enRuta ? ICONOS.check : ICONOS.plus}
+          <span>${enRuta ? 'En ruta' : 'Agregar a ruta'}</span>
+        </button>
+        <button type="button" class="btn-card-action" data-action="detalle">
+          <span>Ficha</span>
+        </button>
       </div>
     `;
 
-    card.addEventListener('click', () => abrirDetalleLugar(l));
+    card.querySelectorAll('[data-action="detalle"]').forEach((el) => {
+      el.addEventListener('click', () => abrirDetalleLugar(l));
+    });
+
+    card.querySelector('[data-action="copiar-nfc"]')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      copiarAlPortapapeles(urlNfcDirecta, 'Link writereview copiado para NFC Tools');
+    });
+
+    card.querySelector('[data-action="toggle-ruta"]')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleLugarEnRuta(l);
+      filtrarYRenderizarLista();
+    });
+
     cont.appendChild(card);
   }
 }
@@ -445,104 +570,136 @@ function abrirDetalleLugar(lugar) {
   if (!overlay || !body) return;
 
   const enRuta = estado.paradasRuta.some((p) => p.placeId === lugar.placeId);
-  const esOSM = lugar.fuente === 'openstreetmap' || lugar.placeId?.startsWith('osm:');
-  const revLink = esOSM ? (lugar.linkResena || lugar.mapsUrl) : linkResena(lugar.placeId);
+  const placeIdReal = extraerPlaceId(lugar.placeId);
+  const revLink = linkResena(placeIdReal);
+
+  const numResenas = typeof lugar.resenas === 'number' ? lugar.resenas : 0;
+  const califTxt =
+    typeof lugar.calificacion === 'number' ? `${lugar.calificacion.toFixed(1)} / 5.0` : 'Sin calificación';
 
   body.innerHTML = `
-    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-top: 4px;">
       <div>
-        <h2 style="font-size: 1.25rem; font-weight: 800; color: #FFFFFF; line-height: 1.2;">${escapeHtml(lugar.nombre)}</h2>
-        <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 2px;">${escapeHtml(lugar.giro)} · ${lugar.direccionCorta || lugar.direccion}</p>
+        <div style="font-size: 0.74rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-tertiary);">
+          ${escapeHtml(lugar.giro)} ${lugar.distancia !== null ? `· A ${distanciaTexto(lugar.distancia)}` : ''}
+        </div>
+        <h2 style="font-size: 1.2rem; font-weight: 700; color: var(--text-primary); letter-spacing: -0.02em; margin-top: 2px;">
+          ${escapeHtml(lugar.nombre)}
+        </h2>
       </div>
-      <span class="badge-prioridad ${lugar.prioridad}">${lugar.prioridad.toUpperCase()}</span>
+      <span class="badge-prioridad ${lugar.prioridad} tabular">Prioridad ${lugar.prioridad}</span>
     </div>
 
-    <!-- Bloque Especial NFC Tools -->
+    <!-- Bloque NFC Tools -->
     <div class="nfc-action-box">
-      <div class="nfc-action-title">
-        <span>📲 Configurar Tarjeta NFC</span>
+      <div class="nfc-box-header">
+        <span class="nfc-action-title">
+          ${ICONOS.nfc}
+          <span>Enlace para NFC Tools</span>
+        </span>
+        <span class="placeid-tag mono">ID: ${escapeHtml(placeIdReal.slice(0, 14))}...</span>
       </div>
-      <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 8px;">
-        ${esOSM 
-          ? 'Enlace universal de búsqueda en Google Maps. Al acercar la tarjeta NFC a cualquier iPhone o Android, abrirá directamente la ficha del comercio para calificar:'
-          : 'Copia este enlace directo a la ventana de reseña de Google Maps y pégalo en la app <strong>NFC Tools</strong>:'}
-      </p>
-      <button type="button" class="btn-copiar-nfc" id="btnCopiarReviewLink">
-        <span>📋 Copiar link para NFC Tools</span>
-      </button>
-      ${!esOSM ? `
-      <div style="margin-top: 8px;">
-        <button type="button" class="btn-secondary-copy" id="btnCopiarPlaceId">
-          Copiar Place ID (${lugar.placeId.slice(0, 10)}...)
+
+      <div class="nfc-url-preview mono" id="nfcUrlPreviewBox">
+        https://search.google.com/local/writereview?placeid=<strong>${escapeHtml(placeIdReal)}</strong>
+      </div>
+
+      <div class="nfc-buttons-row">
+        <button type="button" class="btn-copiar-nfc" id="btnCopiarReviewLink">
+          ${ICONOS.copy}
+          <span>Copiar link de reseña</span>
         </button>
-      </div>` : ''}
+        <button type="button" class="btn-secondary-copy mono" id="btnCopiarPlaceId">
+          <span>Copiar Place ID</span>
+        </button>
+      </div>
     </div>
 
-    <!-- Aviso Verídico de Google -->
-    <div class="info-disclaimer">
-      ℹ️ <strong>Transparencia:</strong> Por políticas de privacidad oficiales de Google Maps, el nombre y correo personal del creador de la ficha no son públicos. Solo se muestran los canales de contacto comerciales verificados.
-    </div>
-
-    <!-- Información de Contacto Real -->
-    <div style="margin: 14px 0;">
-      ${lugar.telefono ? `
-        <div class="detail-row">
-          <span class="detail-row-icon">📞</span>
-          <a href="tel:${escapeHtml(lugar.telefonoIntl || lugar.telefono)}" class="detail-link">${escapeHtml(lugar.telefono)}</a>
-        </div>
-      ` : '<div class="detail-row"><span class="detail-row-icon">📞</span><span style="color:var(--text-dim);">Sin teléfono registrado</span></div>'}
-
-      ${lugar.web ? `
-        <div class="detail-row">
-          <span class="detail-row-icon">🌐</span>
-          <a href="${escapeHtml(lugar.web)}" target="_blank" rel="noopener noreferrer" class="detail-link">${escapeHtml(lugar.web)}</a>
-        </div>
-      ` : '<div class="detail-row"><span class="detail-row-icon">🌐</span><span style="color:var(--text-dim);">Sin sitio web oficial</span></div>'}
+    <!-- Tabla de Datos Reales -->
+    <div class="detail-list">
+      <div class="detail-row">
+        <span class="detail-row-label">Reseñas actuales</span>
+        <span class="detail-row-val tabular"><strong>${numResenas} reseñas</strong> (${califTxt})</span>
+      </div>
 
       <div class="detail-row">
-        <span class="detail-row-icon">📍</span>
-        <span style="font-size: 0.88rem; color: var(--text-muted);">${escapeHtml(lugar.direccion)}</span>
+        <span class="detail-row-label">Place ID oficial</span>
+        <span class="detail-row-val mono" style="font-size: 0.78rem;">${escapeHtml(placeIdReal)}</span>
+      </div>
+
+      <div class="detail-row">
+        <span class="detail-row-label">Teléfono público</span>
+        <span class="detail-row-val">
+          ${
+            lugar.telefono
+              ? `<a href="tel:${escapeHtml(lugar.telefonoIntl || lugar.telefono)}" class="detail-link tabular">${escapeHtml(lugar.telefono)}</a>`
+              : '<span style="color: var(--text-muted);">No registrado en Maps</span>'
+          }
+        </span>
+      </div>
+
+      <div class="detail-row">
+        <span class="detail-row-label">Sitio web</span>
+        <span class="detail-row-val">
+          ${
+            lugar.web
+              ? `<a href="${escapeHtml(lugar.web)}" target="_blank" rel="noopener noreferrer" class="detail-link">${escapeHtml(
+                  lugar.web.replace(/^https?:\/\/(www\.)?/, '').slice(0, 32)
+                )}</a>`
+              : '<span style="color: var(--text-muted);">Sin sitio web</span>'
+          }
+        </span>
+      </div>
+
+      <div class="detail-row">
+        <span class="detail-row-label">Dirección</span>
+        <span class="detail-row-val" style="max-width: 65%;">${escapeHtml(lugar.direccion)}</span>
       </div>
     </div>
 
-    <!-- Botones de Acción -->
+    <div class="info-disclaimer">
+      Nota de privacidad: Google Maps no expone públicamente el nombre del propietario ni el correo personal de quien registró el anuncio.
+    </div>
+
+    <!-- Acciones de Navegación y Ruta -->
     <div class="sheet-actions-grid">
       <button type="button" class="btn-action-sheet highlight" id="btnComoLlegarSheet">
-        <span>🚇 ¿Cómo llegar?</span>
+        ${ICONOS.navigation}
+        <span>Cómo llegar</span>
       </button>
 
       <button type="button" class="btn-action-sheet" id="btnToggleRutaSheet">
-        <span>${enRuta ? '❌ Quitar de ruta' : '➕ Agregar a ruta'}</span>
+        ${enRuta ? ICONOS.check : ICONOS.plus}
+        <span>${enRuta ? 'Quitar de la ruta' : 'Agregar a mi ruta'}</span>
       </button>
     </div>
 
-    <div style="margin-top: 10px;">
-      <a href="${escapeHtml(lugar.mapsUrl)}" target="_blank" rel="noopener noreferrer" class="btn-action-sheet" style="text-decoration:none;">
-        <span>🗺️ Abrir ficha en Google Maps</span>
+    <div style="margin-top: 8px;">
+      <a href="${escapeHtml(lugar.mapsUrl)}" target="_blank" rel="noopener noreferrer" class="btn-action-sheet" style="width: 100%;">
+        ${ICONOS.external}
+        <span>Ver anuncio original en Google Maps</span>
       </a>
     </div>
 
     <div id="transitStepsContainer" style="display: none;"></div>
   `;
 
-  // Listener para copiar link
   document.getElementById('btnCopiarReviewLink')?.addEventListener('click', () => {
-    copiarAlPortapapeles(revLink, '¡Link de reseña copiado! Listo para pegar en NFC Tools');
+    copiarAlPortapapeles(revLink, 'Enlace writereview copiado para NFC Tools');
   });
 
   document.getElementById('btnCopiarPlaceId')?.addEventListener('click', () => {
-    copiarAlPortapapeles(lugar.placeId, 'Place ID copiado');
+    copiarAlPortapapeles(placeIdReal, `Place ID copiado: ${placeIdReal}`);
   });
 
-  // Listener agregar a ruta
   document.getElementById('btnToggleRutaSheet')?.addEventListener('click', () => {
     toggleLugarEnRuta(lugar);
-    cerrarDetalleLugar();
+    filtrarYRenderizarLista();
+    abrirDetalleLugar(lugar);
   });
 
-  // Listener ¿Cómo llegar?
   document.getElementById('btnComoLlegarSheet')?.addEventListener('click', () => {
-    desplegarComoLlegar(lugar);
+    desplegarComoLlegar(lugar, 'TRANSIT');
   });
 
   overlay.classList.add('open');
@@ -554,99 +711,118 @@ function cerrarDetalleLugar() {
   estado.lugarActivo = null;
 }
 
-/* ───────────────────────────── Cómo Llegar (Routes API) ───────────────────────────── */
+/* ───────────────────────────── Cómo Llegar y Transporte ───────────────────────────── */
 
-async function desplegarComoLlegar(lugar) {
+async function desplegarComoLlegar(lugar, modo = 'TRANSIT') {
   const cont = document.getElementById('transitStepsContainer');
   if (!cont) return;
 
-  if (!estado.ubicacion) {
-    alert('Necesitamos tu ubicación GPS actual para trazar cómo llegar.');
-    return;
-  }
-
   cont.style.display = 'block';
   cont.innerHTML = `
-    <div class="transit-steps-box" style="text-align: center; padding: 20px;">
-      <p style="font-weight: 700; color: var(--accent-blue);">Calculando transporte con Google Routes...</p>
+    <div class="transit-steps-box" style="text-align: center; padding: 18px;">
+      <p style="font-size: 0.84rem; font-weight: 600; color: var(--text-secondary);">Calculando ruta de traslado...</p>
     </div>
   `;
+
+  const modoUrl = modo === 'WALK' ? 'walking' : modo === 'DRIVE' ? 'driving' : 'transit';
+  const urlMapsDirecto = urlComoLlegar(estado.ubicacion, lugar, modoUrl);
+
+  if (!estado.ubicacion) {
+    cont.innerHTML = `
+      <div class="transit-steps-box">
+        <p style="font-size: 0.83rem; color: var(--text-secondary);">Abre Google Maps para trazar la ruta desde tu posición actual:</p>
+        <a href="${urlMapsDirecto}" target="_blank" rel="noopener noreferrer" class="btn-action-sheet highlight" style="margin-top: 10px; width: 100%;">
+          ${ICONOS.navigation}
+          <span>Abrir indicaciones en Google Maps</span>
+        </a>
+      </div>
+    `;
+    return;
+  }
 
   try {
     const res = await obtenerRuta({
       origen: estado.ubicacion,
       destino: { placeId: lugar.placeId, lat: lugar.lat, lng: lugar.lng },
-      modo: 'TRANSIT'
+      modo
     });
-
-    const urlMapsDirecto = urlComoLlegar(estado.ubicacion, lugar, 'transit');
-
-    if (!res.pasos || res.pasos.length === 0) {
-      cont.innerHTML = `
-        <div class="transit-steps-box">
-          <p style="color: var(--accent-amber); font-weight: 600;">${res.avisos?.[0] || 'No se encontró combinación de transporte directo.'}</p>
-          <a href="${urlMapsDirecto}" target="_blank" rel="noopener noreferrer" class="btn-action-sheet" style="margin-top: 10px; text-decoration: none;">
-            <span>Ver ruta a pie / auto en Maps</span>
-          </a>
-        </div>
-      `;
-      return;
-    }
 
     const duracion = duracionTexto(res.duracionSeg);
     const distancia = distanciaTexto(res.distanciaM);
 
     let pasosHtml = '';
-    for (const p of res.pasos) {
-      let icon = '🚶';
-      let header = p.instruccion || 'Camina';
-
-      if (p.tipo === 'TRANSIT' && p.transporte) {
-        const t = p.transporte;
-        icon = t.vehiculo === 'SUBWAY' ? '🚇' : t.vehiculo === 'BUS' ? '🚌' : '🚊';
-        header = `
-          <div>
-            <span class="transit-line-chip" style="background-color: ${t.color}; color: ${t.colorTexto};">
-              ${escapeHtml(t.lineaCorta || t.linea)}
-            </span>
-            <strong>${escapeHtml(t.linea)}</strong> (${t.paradas} paradas)
-          </div>
-          <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 4px;">
-            Desde: <strong>${escapeHtml(t.desde)}</strong> → Hacia: <strong>${escapeHtml(t.hasta)}</strong>
+    if (Array.isArray(res.pasos) && res.pasos.length > 0) {
+      for (const p of res.pasos) {
+        let detallePaso = escapeHtml(p.instruccion || 'Avanza hacia el destino');
+        if (p.tipo === 'TRANSIT' && p.transporte) {
+          const t = p.transporte;
+          detallePaso = `
+            <div>
+              <span class="transit-line-chip" style="background-color: ${t.color}; color: ${t.colorTexto};">
+                ${escapeHtml(t.lineaCorta || t.linea)}
+              </span>
+              <strong>${escapeHtml(t.vehiculoNombre || 'Transporte')} · ${escapeHtml(t.linea)}</strong> (${t.paradas} paradas)
+            </div>
+            <div style="font-size: 0.78rem; color: var(--text-secondary); margin-top: 3px;">
+              Subir en <strong>${escapeHtml(t.desde)}</strong> → Bajar en <strong>${escapeHtml(t.hasta)}</strong>
+            </div>
+          `;
+        }
+        pasosHtml += `
+          <div class="transit-step-item">
+            <div style="flex: 1;">
+              ${detallePaso}
+              <div class="tabular" style="font-size: 0.74rem; color: var(--text-tertiary); margin-top: 2px;">
+                ${duracionTexto(p.duracionSeg)} · ${distanciaTexto(p.distanciaM)}
+              </div>
+            </div>
           </div>
         `;
       }
-
-      pasosHtml += `
-        <div class="transit-step-item">
-          <div class="transit-icon-badge" style="background-color: rgba(255,255,255,0.06);">${icon}</div>
-          <div style="flex: 1; font-size: 0.88rem;">
-            ${header}
-            <div style="font-size: 0.75rem; color: var(--text-dim); margin-top: 2px;">
-              ${duracionTexto(p.duracionSeg)} · ${distanciaTexto(p.distanciaM)}
-            </div>
-          </div>
-        </div>
+    } else {
+      const modoEtiqueta =
+        modo === 'WALK' ? 'caminando' : modo === 'DRIVE' ? 'en automóvil' : 'en transporte público';
+      pasosHtml = `
+        <p style="font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 10px;">
+          Distancia estimada de <strong>${distancia}</strong> (~${duracion} ${modoEtiqueta}). Presiona el botón inferior para ver las líneas de transporte público o indicaciones paso a paso en Google Maps.
+        </p>
       `;
     }
 
     cont.innerHTML = `
       <div class="transit-steps-box">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-          <span style="font-weight: 800; color: #FFFFFF; font-size: 1.05rem;">⏱️ ${duracion}</span>
-          <span style="font-size: 0.85rem; color: var(--accent-blue);">${distancia}</span>
+        <div class="travel-mode-tabs">
+          <button type="button" class="travel-mode-btn ${modo === 'TRANSIT' ? 'active' : ''}" data-modo-sheet="TRANSIT">Transporte público</button>
+          <button type="button" class="travel-mode-btn ${modo === 'WALK' ? 'active' : ''}" data-modo-sheet="WALK">A pie</button>
+          <button type="button" class="travel-mode-btn ${modo === 'DRIVE' ? 'active' : ''}" data-modo-sheet="DRIVE">En auto</button>
         </div>
+
+        <div class="tabular" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border-faint);">
+          <span style="font-weight: 700; color: var(--text-primary); font-size: 0.92rem;">Tiempo estimado: ${duracion}</span>
+          <span style="font-size: 0.82rem; font-weight: 600; color: var(--text-secondary);">${distancia}</span>
+        </div>
+
         ${pasosHtml}
-        <a href="${urlMapsDirecto}" target="_blank" rel="noopener noreferrer" class="btn-action-sheet" style="margin-top: 12px; text-decoration: none;">
-          <span>📲 Iniciar Navegación en Google Maps</span>
+
+        <a href="${urlMapsDirecto}" target="_blank" rel="noopener noreferrer" class="btn-action-sheet highlight" style="margin-top: 10px; width: 100%;">
+          ${ICONOS.navigation}
+          <span>Iniciar navegación en Google Maps</span>
         </a>
       </div>
     `;
+
+    cont.querySelectorAll('[data-modo-sheet]').forEach((b) => {
+      b.addEventListener('click', () => {
+        desplegarComoLlegar(lugar, b.dataset.modoSheet);
+      });
+    });
   } catch (err) {
-    console.error('Error obteniendo trayecto:', err);
     cont.innerHTML = `
-      <div class="transit-steps-box" style="color: #EF4444;">
-        <p>No se pudo calcular el trayecto: ${err.message}</p>
+      <div class="transit-steps-box">
+        <a href="${urlMapsDirecto}" target="_blank" rel="noopener noreferrer" class="btn-action-sheet highlight" style="width: 100%;">
+          ${ICONOS.navigation}
+          <span>Abrir ruta en Google Maps</span>
+        </a>
       </div>
     `;
   }
@@ -658,10 +834,10 @@ function toggleLugarEnRuta(lugar) {
   const index = estado.paradasRuta.findIndex((p) => p.placeId === lugar.placeId);
   if (index >= 0) {
     estado.paradasRuta.splice(index, 1);
-    mostrarToast('Eliminado de la ruta');
+    mostrarToast('Comercio quitado de la ruta');
   } else {
     estado.paradasRuta.push(lugar);
-    mostrarToast('Agregado a tu ruta');
+    mostrarToast('Comercio agregado a la ruta');
   }
   guardarRutaPersistida();
 }
@@ -670,109 +846,145 @@ function actualizarBadgeRuta() {
   const badge = document.getElementById('badgeRutaCount');
   if (badge) {
     badge.textContent = estado.paradasRuta.length;
-    badge.style.display = estado.paradasRuta.length > 0 ? 'inline-block' : 'none';
+    badge.style.display = estado.paradasRuta.length > 0 ? 'inline-flex' : 'none';
   }
 }
 
 function renderizarVistaRuta() {
   const cont = document.getElementById('rutaParadasContainer');
+  const btnMaps = document.getElementById('btnAbrirRutaCompletaMaps');
   if (!cont) return;
 
   if (estado.paradasRuta.length === 0) {
     cont.innerHTML = `
-      <div style="text-align: center; padding: 60px 16px; color: var(--text-dim);">
-        <p style="font-size: 2.5rem; margin-bottom: 12px;">🗺️</p>
-        <p style="font-weight: 700; font-size: 1.1rem; color: var(--text-muted);">Tu ruta de hoy está vacía</p>
-        <p style="font-size: 0.88rem; margin-top: 6px;">
-          Busca negocios y agrégalos con el botón "➕ Agregar a ruta" para ordenarlos automáticamente por cercanía.
+      <div class="empty-state-box">
+        <p class="empty-state-title">No hay paradas en tu ruta</p>
+        <p class="empty-state-desc">
+          Agrega comercios desde la lista de prospectos para ordenarlos automáticamente por distancia y trazar tu recorrido.
         </p>
       </div>
     `;
-    const btnMaps = document.getElementById('btnAbrirRutaCompletaMaps');
     if (btnMaps) btnMaps.style.display = 'none';
     return;
   }
 
-  // Ordenar óptimamente con vecino más cercano y 2-opt
+  // Optimizar orden mediante vecino más cercano + 2-opt
   const rutaOrdenada = ordenarRuta(estado.ubicacion, estado.paradasRuta);
   estado.paradasRuta = rutaOrdenada;
   guardarRutaPersistida();
 
   cont.innerHTML = '';
 
+  let puntoAnterior = estado.ubicacion;
+
   rutaOrdenada.forEach((l, i) => {
     const card = document.createElement('div');
     card.className = 'route-stop-card';
 
+    const distTramo =
+      puntoAnterior && typeof l.lat === 'number'
+        ? distanciaMetros(puntoAnterior, l)
+        : null;
+    puntoAnterior = l;
+
     const visita = estado.bitacoraVisitas[l.placeId];
     let estadoVisitaBadge = '';
     if (visita) {
-      if (visita.estado === 'vendido') estadoVisitaBadge = '<span style="color:#10B981;font-weight:700;">🎉 ¡Vendido!</span>';
-      else if (visita.estado === 'interesado') estadoVisitaBadge = '<span style="color:#F59E0B;font-weight:700;">🤔 Interesado</span>';
-      else if (visita.estado === 'no') estadoVisitaBadge = '<span style="color:#EF4444;font-weight:700;">❌ No le interesó</span>';
+      if (visita.estado === 'vendido') {
+        estadoVisitaBadge = '<span class="visit-status-pill vendido">Tarjeta NFC vendida</span>';
+      } else if (visita.estado === 'interesado') {
+        estadoVisitaBadge = '<span class="visit-status-pill interesado">Seguimiento / Interesado</span>';
+      } else if (visita.estado === 'no') {
+        estadoVisitaBadge = '<span class="visit-status-pill no">No interesado</span>';
+      }
     }
 
+    const placeIdLimpio = extraerPlaceId(l.placeId);
+    const linkNfc = linkResena(placeIdLimpio);
+
     card.innerHTML = `
-      <div class="route-stop-number">${i + 1}</div>
-      <div style="flex: 1;">
-        <h4 style="font-size: 1rem; font-weight: 700; color: #FFFFFF;">${escapeHtml(l.nombre)}</h4>
-        <p style="font-size: 0.8rem; color: var(--text-muted);">${escapeHtml(l.giro)} · ${l.direccionCorta || l.direccion}</p>
-        <div style="font-size: 0.78rem; margin-top: 4px;">${estadoVisitaBadge}</div>
+      <div class="route-stop-number tabular">${i + 1}</div>
+      <div style="flex: 1; min-width: 0;">
+        <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px;">
+          <h4 style="font-size: 0.96rem; font-weight: 700; color: var(--text-primary);">${escapeHtml(l.nombre)}</h4>
+          ${
+            distTramo !== null && Number.isFinite(distTramo)
+              ? `<span class="tabular" style="font-size: 0.75rem; font-weight: 600; color: var(--text-tertiary);">+${distanciaTexto(distTramo)}</span>`
+              : ''
+          }
+        </div>
+        <p style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 1px;">${escapeHtml(l.giro)} · ${escapeHtml(l.direccionCorta || l.direccion)}</p>
+        ${estadoVisitaBadge}
 
         <div class="route-actions-row">
-          <button type="button" class="btn-action-sheet" style="min-height:36px;font-size:0.75rem;" data-ver="${l.placeId}">
-            Ver ficha
+          <button type="button" class="btn-card-action primary-nfc" style="min-height: 32px; font-size: 0.74rem;" data-copiar="${escapeHtml(l.placeId)}">
+            ${ICONOS.copy}
+            <span>Copiar link NFC</span>
           </button>
-          <button type="button" class="btn-action-sheet" style="min-height:36px;font-size:0.75rem;" data-resultado="${l.placeId}">
-            Registrar visita
+          <button type="button" class="btn-card-action" style="min-height: 32px; font-size: 0.74rem;" data-ver="${escapeHtml(l.placeId)}">
+            <span>Ficha y transporte</span>
+          </button>
+          <button type="button" class="btn-card-action" style="min-height: 32px; font-size: 0.74rem;" data-resultado="${escapeHtml(l.placeId)}">
+            <span>Estado</span>
           </button>
         </div>
       </div>
     `;
 
+    card.querySelector(`[data-copiar="${l.placeId}"]`)?.addEventListener('click', () => {
+      copiarAlPortapapeles(linkNfc, 'Link writereview copiado');
+    });
     card.querySelector(`[data-ver="${l.placeId}"]`)?.addEventListener('click', () => abrirDetalleLugar(l));
     card.querySelector(`[data-resultado="${l.placeId}"]`)?.addEventListener('click', () => registrarVisita(l));
 
     cont.appendChild(card);
   });
 
-  // Configurar botón para abrir ruta completa en Google Maps
-  const btnMaps = document.getElementById('btnAbrirRutaCompletaMaps');
   if (btnMaps) {
     btnMaps.style.display = 'flex';
     btnMaps.onclick = () => {
-      const urls = urlsRutaCompleta(estado.ubicacion, estado.paradasRuta, 'walking');
+      const urls = urlsRutaCompleta(estado.ubicacion, estado.paradasRuta, estado.modoRutaGlobal);
       if (urls.length > 0) {
-        window.open(urls[0], '_blank');
+        window.open(urls[0], '_blank', 'noopener');
       }
     };
   }
 
-  // Botón para limpiar ruta
   const btnLimpiar = document.getElementById('btnLimpiarRuta');
   if (btnLimpiar) {
     btnLimpiar.onclick = () => {
-      if (confirm('¿Deseas vaciar la ruta de hoy?')) {
+      if (estado.paradasRuta.length === 0) return;
+      if (confirm('¿Deseas vaciar todas las paradas de la ruta actual?')) {
         estado.paradasRuta = [];
         guardarRutaPersistida();
         renderizarVistaRuta();
+        filtrarYRenderizarLista();
       }
     };
   }
 }
 
 function registrarVisita(lugar) {
-  const resp = prompt(
-    `Registrar resultado de visita en "${lugar.nombre}":\n\n1 = Vendido 🎉\n2 = Interesado (volver) 🤔\n3 = No le interesó ❌\n0 = Borrar estado`,
-    '1'
-  );
-  if (resp === null) return;
+  const actual = estado.bitacoraVisitas[lugar.placeId]?.estado || '';
+  const siguiente =
+    actual === '' ? 'vendido' : actual === 'vendido' ? 'interesado' : actual === 'interesado' ? 'no' : '';
 
-  const hoy = new Date().toISOString();
-  if (resp === '1') estado.bitacoraVisitas[lugar.placeId] = { estado: 'vendido', fecha: hoy };
-  else if (resp === '2') estado.bitacoraVisitas[lugar.placeId] = { estado: 'interesado', fecha: hoy };
-  else if (resp === '3') estado.bitacoraVisitas[lugar.placeId] = { estado: 'no', fecha: hoy };
-  else if (resp === '0') delete estado.bitacoraVisitas[lugar.placeId];
+  if (!siguiente) {
+    delete estado.bitacoraVisitas[lugar.placeId];
+    mostrarToast('Estado de visita reiniciado');
+  } else {
+    estado.bitacoraVisitas[lugar.placeId] = {
+      estado: siguiente,
+      fecha: new Date().toISOString()
+    };
+    const etiqueta =
+      siguiente === 'vendido'
+        ? 'Marcado como Vendido'
+        : siguiente === 'interesado'
+        ? 'Marcado como Interesado'
+        : 'Marcado como No interesado';
+    mostrarToast(etiqueta);
+  }
 
   guardarRutaPersistida();
   renderizarVistaRuta();
@@ -791,7 +1003,6 @@ function copiarAlPortapapeles(texto, mensajeToast) {
       mostrarToast(mensajeToast);
     });
   } else {
-    // Fallback clásico
     const t = document.createElement('textarea');
     t.value = texto;
     document.body.appendChild(t);
@@ -811,7 +1022,7 @@ function mostrarToast(mensaje) {
   if (toastTimer) clearTimeout(toastTimer);
   toastTimer = setTimeout(() => {
     toast.classList.remove('show');
-  }, 2800);
+  }, 2600);
 }
 
 function mostrarSkeletons() {
@@ -836,8 +1047,6 @@ function escapeHtml(str) {
 
 function inicializarPWA() {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js').catch((err) => {
-      console.warn('SW no registrado:', err);
-    });
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
   }
 }

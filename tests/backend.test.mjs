@@ -118,3 +118,31 @@ test('osm.js clasificarGiroOSM y normalizarLugarOSM mapean tags de OpenStreetMap
   assert.equal(norm.fuente, 'openstreetmap');
 });
 
+test('gmaps-public.js extrae Place ID ChIJ, reseñas reales y link writereview sin emojis', async () => {
+  const { parsearItemGoogleMaps, limpiarEmojis } = await import('../functions/_lib/gmaps-public.js');
+
+  assert.equal(limpiarEmojis('Barbería El Catrín 💈✂️'), 'Barbería El Catrín');
+
+  const fakeItem = [];
+  fakeItem[2] = ['Av. Reforma 100', 'Juárez', 'CDMX'];
+  fakeItem[4] = [null, null, null, null, null, null, null, 4.6, 12];
+  fakeItem[7] = ['https://barberiacatrin.mx'];
+  fakeItem[9] = [null, null, 19.4326, -99.1332];
+  fakeItem[11] = 'Barbería El Catrín 💈';
+  fakeItem[13] = ['Barbería'];
+  fakeItem[39] = 'Av. Reforma 100, Juárez, CDMX';
+  fakeItem[78] = 'ChIJt8FmsX3Z7IUR8HkOVjboSow';
+  fakeItem[178] = [['55 1234 5678', null, null, '+525512345678']];
+
+  const parsed = parsearItemGoogleMaps(fakeItem, 'barberias');
+  assert.equal(parsed.placeId, 'ChIJt8FmsX3Z7IUR8HkOVjboSow');
+  assert.equal(parsed.nombre, 'Barbería El Catrín');
+  assert.equal(parsed.calificacion, 4.6);
+  assert.equal(parsed.resenas, 12);
+  assert.equal(
+    parsed.linkResena,
+    'https://search.google.com/local/writereview?placeid=ChIJt8FmsX3Z7IUR8HkOVjboSow'
+  );
+});
+
+

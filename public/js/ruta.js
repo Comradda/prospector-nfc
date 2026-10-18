@@ -256,12 +256,29 @@ export function urlsRutaCompleta(origen, lugaresOrdenados, modo) {
 }
 
 /**
+ * Extrae el Place ID (p. ej. ChIJt8FmsX3Z7IUR8HkOVjboSow) de un texto o URL.
+ * @param {string} valor
+ * @returns {string}
+ */
+export function extraerPlaceId(valor) {
+  const s = String(valor ?? '').trim();
+  if (!s) return '';
+  const matchParam = s.match(/[?&]placeid=([A-Za-z0-9_-]+)/i);
+  if (matchParam) return matchParam[1];
+  const matchChij = s.match(/(ChIJ[A-Za-z0-9_-]{10,45})/);
+  if (matchChij) return matchChij[1];
+  return s;
+}
+
+/**
  * Link directo para que el cliente escriba una reseña en Google (para grabar en la tarjeta NFC).
+ * Formato estricto: https://search.google.com/local/writereview?placeid=ChIJ...
  * @param {string} placeId
  * @returns {string}
  */
 export function linkResena(placeId) {
-  return 'https://search.google.com/local/writereview?placeid=' + encodeURIComponent(String(placeId ?? ''));
+  const limpio = extraerPlaceId(placeId);
+  return 'https://search.google.com/local/writereview?placeid=' + encodeURIComponent(limpio);
 }
 
 /**
