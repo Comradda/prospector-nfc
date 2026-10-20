@@ -499,6 +499,32 @@ svg.icon-lg {
 
 .card-header-main {
   cursor: pointer;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.card-title-col {
+  flex: 1;
+  min-width: 0;
+}
+
+.card-thumb-wrap {
+  width: 62px;
+  height: 62px;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background-color: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+}
+
+.card-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .card-title {
@@ -636,6 +662,34 @@ svg.icon-lg {
   color: var(--text-secondary);
   padding: 2px 8px;
   border-radius: var(--radius-xs);
+}
+
+.pill-traffic {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--radius-xs);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pill-traffic.traffic-estancado {
+  background-color: #FEF2F2;
+  color: #DC2626;
+  border: 1px solid #FECACA;
+}
+
+.pill-traffic.traffic-lento {
+  background-color: #FFFBEB;
+  color: #B45309;
+  border: 1px solid #FDE68A;
+}
+
+.pill-traffic.traffic-activo {
+  background-color: #ECFDF5;
+  color: #047857;
+  border: 1px solid #A7F3D0;
 }
 
 /* Acciones Rápidas en la Tarjeta */
@@ -908,6 +962,150 @@ svg.icon-lg {
 .sheet-content {
   overflow-y: auto;
   padding: 8px 20px 24px 20px;
+}
+
+/* Banner de Fachada en Detalle */
+.sheet-photo-banner {
+  width: 100%;
+  height: 145px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  position: relative;
+  margin: 6px 0 14px 0;
+  background-color: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+}
+
+.sheet-photo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.sheet-photo-badge {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  background-color: rgba(9, 9, 11, 0.78);
+  color: #FFFFFF;
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: var(--radius-xs);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* Bloque Monitor de Tráfico de Reseñas */
+.review-traffic-box {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  margin: 16px 0;
+}
+
+.traffic-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.traffic-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.traffic-badge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+}
+
+.traffic-badge.estancado {
+  background-color: #FEF2F2;
+  color: #DC2626;
+  border: 1px solid #FECACA;
+}
+
+.traffic-badge.lento {
+  background-color: #FFFBEB;
+  color: #B45309;
+  border: 1px solid #FDE68A;
+}
+
+.traffic-badge.activo {
+  background-color: #ECFDF5;
+  color: #047857;
+  border: 1px solid #A7F3D0;
+}
+
+.traffic-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  background-color: var(--bg-subtle);
+  border-radius: var(--radius-sm);
+  padding: 10px 6px;
+  text-align: center;
+  margin-bottom: 10px;
+}
+
+.traffic-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.traffic-item + .traffic-item {
+  border-left: 1px solid var(--border-faint);
+}
+
+.traffic-period {
+  font-size: 0.67rem;
+  color: var(--text-tertiary);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.traffic-count {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin: 2px 0 1px 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.traffic-count.zero {
+  color: #DC2626;
+}
+
+.traffic-sub {
+  font-size: 0.66rem;
+  color: var(--text-muted);
+}
+
+.traffic-diagnosis {
+  font-size: 0.79rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  background-color: var(--bg-subtle);
+  padding: 8px 12px;
+  border-radius: var(--radius-xs);
+  border-left: 3px solid var(--brand-ink);
+  margin: 0;
 }
 
 /* Bloque NFC Tools en Detalle */

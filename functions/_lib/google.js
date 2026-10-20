@@ -5,6 +5,7 @@
  */
 
 import { clasificarGiro, esCentroComercialTipo } from './giros.js';
+import { calcularTraficoResenas } from './gmaps-public.js';
 
 const URL_SEARCH_NEARBY = 'https://places.googleapis.com/v1/places:searchNearby';
 const URL_COMPUTE_ROUTES = 'https://routes.googleapis.com/directions/v2:computeRoutes';
@@ -62,9 +63,14 @@ export function normalizarLugarGoogle(p, giroSugerido) {
       }))
     : [];
 
+  const resenasNum = typeof p.userRatingCount === 'number' ? p.userRatingCount : 0;
+  const califNum = typeof p.rating === 'number' ? p.rating : null;
+
   return {
     placeId,
     nombre,
+    fotoUrl: null,
+    traficoResenas: calcularTraficoResenas(resenasNum, califNum),
     giroClave: giroSugerido || giroInfo.clave,
     giro: p.primaryTypeDisplayName?.text || giroInfo.etiqueta,
     tipos,
@@ -72,8 +78,8 @@ export function normalizarLugarGoogle(p, giroSugerido) {
     direccionCorta: p.shortFormattedAddress || null,
     lat,
     lng,
-    calificacion: typeof p.rating === 'number' ? p.rating : null,
-    resenas: typeof p.userRatingCount === 'number' ? p.userRatingCount : 0,
+    calificacion: califNum,
+    resenas: resenasNum,
     estado: p.businessStatus || 'OPERATIONAL',
     abiertoAhora: p.currentOpeningHours?.openNow ?? null,
     telefono: p.nationalPhoneNumber || null,

@@ -132,6 +132,7 @@ test('gmaps-public.js extrae Place ID ChIJ, reseñas reales y link writereview s
   fakeItem[13] = ['Barbería'];
   fakeItem[39] = 'Av. Reforma 100, Juárez, CDMX';
   fakeItem[78] = 'ChIJt8FmsX3Z7IUR8HkOVjboSow';
+  fakeItem[157] = 'https://lh3.googleusercontent.com/-test/photo/s44-p-k-no-ns-nd/photo.jpg';
   fakeItem[178] = [['55 1234 5678', null, null, '+525512345678']];
 
   const parsed = parsearItemGoogleMaps(fakeItem, 'barberias');
@@ -139,6 +140,14 @@ test('gmaps-public.js extrae Place ID ChIJ, reseñas reales y link writereview s
   assert.equal(parsed.nombre, 'Barbería El Catrín');
   assert.equal(parsed.calificacion, 4.6);
   assert.equal(parsed.resenas, 12);
+  assert.equal(
+    parsed.fotoUrl,
+    'https://lh3.googleusercontent.com/-test/photo/w400-h300-k-no/photo.jpg'
+  );
+  assert.ok(parsed.traficoResenas);
+  assert.equal(parsed.traficoResenas.dias7, 0);
+  assert.equal(parsed.traficoResenas.dias30, 0);
+  assert.equal(parsed.traficoResenas.estadoFlujo, 'estancado');
   assert.equal(
     parsed.linkResena,
     'https://search.google.com/local/writereview?placeid=ChIJt8FmsX3Z7IUR8HkOVjboSow'

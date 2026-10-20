@@ -51,6 +51,70 @@ export function limpiarEmojis(str) {
 }
 
 /**
+ * Proyecta el tráfico y velocidad reciente de reseñas recibidas
+ * en los últimos 7, 30 y 90 días, clasificando el estado del flujo.
+ * @param {number} resenas
+ * @param {number|null} [calificacion]
+ */
+export function calcularTraficoResenas(resenas, calificacion = null) {
+  const n = typeof resenas === 'number' ? Math.max(0, Math.floor(resenas)) : 0;
+
+  if (n === 0) {
+    return {
+      dias7: 0,
+      dias30: 0,
+      dias90: 0,
+      estadoFlujo: 'estancado',
+      etiquetaFlujo: 'Sin reseñas',
+      velocidadMensual: '0 / mes',
+      diagnosticoVenta: 'Perfil virgen: Los clientes consumen pero nadie califica. La tarjeta NFC es vital para iniciar su posicionamiento.'
+    };
+  }
+
+  if (n <= 15) {
+    const d90 = n <= 3 ? 0 : 1;
+    return {
+      dias7: 0,
+      dias30: 0,
+      dias90: d90,
+      estadoFlujo: 'estancado',
+      etiquetaFlujo: 'Tráfico estancado',
+      velocidadMensual: '< 1 al mes',
+      diagnosticoVenta: 'Perfil estancado: A este ritmo tardará más de un año en subir de posición. Urge tarjeta NFC en mostrador.'
+    };
+  }
+
+  if (n <= 60) {
+    const d7 = 0;
+    const d30 = Math.max(1, Math.round(n * 0.035));
+    const d90 = Math.max(2, Math.round(n * 0.11));
+    return {
+      dias7: d7,
+      dias30: d30,
+      dias90: d90,
+      estadoFlujo: 'lento',
+      etiquetaFlujo: 'Tráfico lento',
+      velocidadMensual: `~${Math.max(1, Math.round(n * 0.04))} / mes`,
+      diagnosticoVenta: 'Flujo lento: Pierde decenas de clientes diarios que se van sin opinar. Una tarjeta NFC triplica su captura.'
+    };
+  }
+
+  // Negocios consolidados con más de 60 opiniones
+  const d7 = Math.max(1, Math.round(n * 0.012));
+  const d30 = Math.max(2, Math.round(n * 0.05));
+  const d90 = Math.max(6, Math.round(n * 0.15));
+  return {
+    dias7: d7,
+    dias30: d30,
+    dias90: d90,
+    estadoFlujo: 'activo',
+    etiquetaFlujo: 'Tráfico activo',
+    velocidadMensual: `~${Math.round(n * 0.05)} / mes`,
+    diagnosticoVenta: 'Negocio con afluencia. La tarjeta NFC consolida su posición en Maps y protege su promedio contra malas reseñas.'
+  };
+}
+
+/**
  * Parsear un registro individual de la matriz de Google Maps (tbm=map).
  * @param {Array<any>} item
  * @param {string} giroClave
@@ -94,6 +158,15 @@ export function parsearItemGoogleMaps(item, giroClave = 'servicios') {
 
   const web = (typeof item[7]?.[0] === 'string' && item[7][0].trim()) || null;
 
+  let fotoUrl = null;
+  const fotoRaw = typeof item[157] === 'string' ? item[157] : null;
+  if (fotoRaw && fotoRaw.startsWith('http')) {
+    // Normalizar para obtener imagen pública sin restricciones de referer (-ns-nd)
+    fotoUrl = fotoRaw.replace(/\/s\d+-[^\/]+/, '/w400-h300-k-no');
+  }
+
+  const traficoResenas = calcularTraficoResenas(resenas, calificacion);
+
   const textoCategorias = categorias.join(' ').toLowerCase();
   const esCentroComercial =
     textoCategorias.includes('centro comercial') ||
@@ -103,6 +176,8 @@ export function parsearItemGoogleMaps(item, giroClave = 'servicios') {
   return {
     placeId,
     nombre,
+    fotoUrl,
+    traficoResenas,
     giroClave,
     giro,
     tipos: categorias,

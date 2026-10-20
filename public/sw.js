@@ -3,7 +3,7 @@
  * Cachea los recursos estáticos (app shell) y SIEMPRE consulta la red para /api/*.
  */
 
-const CACHE_NAME = 'prospector-nfc-v4';
+const CACHE_NAME = 'prospector-nfc-v5';
 const RECURSOS_SHELL = [
   './',
   './index.html',

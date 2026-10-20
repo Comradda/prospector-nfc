@@ -125,6 +125,16 @@ export function normalizarLugarOSM(el, giroSugerido) {
   return {
     placeId,
     nombre,
+    fotoUrl: null,
+    traficoResenas: {
+      dias7: 0,
+      dias30: 0,
+      dias90: 0,
+      estadoFlujo: 'estancado',
+      etiquetaFlujo: 'Sin reseñas',
+      velocidadMensual: '0 / mes',
+      diagnosticoVenta: 'Sin reseñas registradas en OpenStreetMap.'
+    },
     giroClave: giroSugerido || giroInfo.clave,
     giro: giroInfo.etiqueta,
     tipos: [tags.amenity, tags.shop].filter(Boolean),

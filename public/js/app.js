@@ -43,7 +43,9 @@ const ICONOS = {
   navigation: `<svg class="icon icon-sm" viewBox="0 0 24 24"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>`,
   external: `<svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`,
   radar: `<svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>`,
-  nfc: `<svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M6 8v8"/><circle cx="10" cy="12" r="1.5" fill="currentColor" stroke="none"/><path d="M13.5 9.5a3.5 3.5 0 0 1 0 5"/><path d="M16.5 7a7 7 0 0 1 0 10"/></svg>`
+  nfc: `<svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M6 8v8"/><circle cx="10" cy="12" r="1.5" fill="currentColor" stroke="none"/><path d="M13.5 9.5a3.5 3.5 0 0 1 0 5"/><path d="M16.5 7a7 7 0 0 1 0 10"/></svg>`,
+  camera: `<svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>`,
+  chart: `<svg class="icon icon-sm" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>`
 };
 
 /* ───────────────────────────── Estado Global ───────────────────────────── */
@@ -493,6 +495,25 @@ function filtrarYRenderizarLista() {
     const placeIdLimpio = extraerPlaceId(l.placeId);
     const urlNfcDirecta = linkResena(placeIdLimpio);
 
+    const fotoHtml = l.fotoUrl
+      ? `<div class="card-thumb-wrap">
+           <img src="${escapeHtml(l.fotoUrl)}" alt="${escapeHtml(l.nombre)}" class="card-thumb" loading="lazy" onerror="this.parentElement.style.display='none'" />
+         </div>`
+      : '';
+
+    const trafico = l.traficoResenas || {
+      dias7: 0,
+      dias30: 0,
+      dias90: 0,
+      estadoFlujo: 'estancado',
+      etiquetaFlujo: 'Sin reseñas'
+    };
+    const pillTrafico = `
+      <span class="pill-traffic traffic-${escapeHtml(trafico.estadoFlujo)} tabular" title="Opiniones recientes estimadas">
+        7d: ${trafico.dias7} · 30d: ${trafico.dias30} · 90d: ${trafico.dias90} (${escapeHtml(trafico.etiquetaFlujo)})
+      </span>
+    `;
+
     card.innerHTML = `
       <div class="card-top-meta">
         <div class="card-category-distance">
@@ -503,8 +524,11 @@ function filtrarYRenderizarLista() {
       </div>
 
       <div class="card-header-main" data-action="detalle">
-        <h3 class="card-title">${escapeHtml(l.nombre)}</h3>
-        <p class="card-address">${escapeHtml(l.direccionCorta || l.direccion)}</p>
+        <div class="card-title-col">
+          <h3 class="card-title">${escapeHtml(l.nombre)}</h3>
+          <p class="card-address">${escapeHtml(l.direccionCorta || l.direccion)}</p>
+        </div>
+        ${fotoHtml}
       </div>
 
       <div class="card-metrics-strip tabular" data-action="detalle">
@@ -523,6 +547,7 @@ function filtrarYRenderizarLista() {
       </div>
 
       <div class="badges-container">
+        ${pillTrafico}
         ${esPlazaChica ? `<span class="badge-plaza-chica">Plaza comercial pequeña (${l.plaza.tamano} negocios)</span>` : ''}
         ${motivosHtml}
       </div>
@@ -577,7 +602,65 @@ function abrirDetalleLugar(lugar) {
   const califTxt =
     typeof lugar.calificacion === 'number' ? `${lugar.calificacion.toFixed(1)} / 5.0` : 'Sin calificación';
 
+  const bannerFotoHtml = lugar.fotoUrl
+    ? `
+      <div class="sheet-photo-banner">
+        <img src="${escapeHtml(lugar.fotoUrl)}" alt="${escapeHtml(lugar.nombre)}" class="sheet-photo-img" onerror="this.parentElement.style.display='none'" />
+        <div class="sheet-photo-badge">
+          ${ICONOS.camera}
+          <span>Fachada en Google Maps</span>
+        </div>
+      </div>
+    `
+    : '';
+
+  const trafico = lugar.traficoResenas || {
+    dias7: 0,
+    dias30: 0,
+    dias90: 0,
+    estadoFlujo: 'estancado',
+    etiquetaFlujo: 'Sin reseñas',
+    velocidadMensual: '0 / mes',
+    diagnosticoVenta: 'Perfil sin reseñas. Los clientes no están calificando en Google.'
+  };
+
+  const traficoBoxHtml = `
+    <div class="review-traffic-box">
+      <div class="traffic-header">
+        <span class="traffic-title">
+          ${ICONOS.chart}
+          <span>Tráfico Reciente de Reseñas</span>
+        </span>
+        <span class="traffic-badge ${escapeHtml(trafico.estadoFlujo)}">${escapeHtml(trafico.etiquetaFlujo)}</span>
+      </div>
+
+      <div class="traffic-grid tabular">
+        <div class="traffic-item">
+          <span class="traffic-period">Últimos 7 días</span>
+          <span class="traffic-count ${trafico.dias7 === 0 ? 'zero' : ''}">${trafico.dias7}</span>
+          <span class="traffic-sub">${trafico.dias7 === 1 ? 'opinión' : 'opiniones'}</span>
+        </div>
+        <div class="traffic-item">
+          <span class="traffic-period">Últimos 30 días</span>
+          <span class="traffic-count ${trafico.dias30 === 0 ? 'zero' : ''}">${trafico.dias30}</span>
+          <span class="traffic-sub">${trafico.dias30 === 1 ? 'opinión' : 'opiniones'}</span>
+        </div>
+        <div class="traffic-item">
+          <span class="traffic-period">Últimos 90 días</span>
+          <span class="traffic-count ${trafico.dias90 === 0 ? 'zero' : ''}">${trafico.dias90}</span>
+          <span class="traffic-sub">${trafico.dias90 === 1 ? 'opinión' : 'opiniones'}</span>
+        </div>
+      </div>
+
+      <p class="traffic-diagnosis">
+        <strong>Argumento para venta:</strong> ${escapeHtml(trafico.diagnosticoVenta)} (ritmo: ${escapeHtml(trafico.velocidadMensual)})
+      </p>
+    </div>
+  `;
+
   body.innerHTML = `
+    ${bannerFotoHtml}
+
     <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-top: 4px;">
       <div>
         <div style="font-size: 0.74rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-tertiary);">
@@ -614,6 +697,8 @@ function abrirDetalleLugar(lugar) {
         </button>
       </div>
     </div>
+
+    ${traficoBoxHtml}
 
     <!-- Tabla de Datos Reales -->
     <div class="detail-list">
