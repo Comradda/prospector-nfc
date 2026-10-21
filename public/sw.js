@@ -3,7 +3,7 @@
  * Cachea los recursos estáticos (app shell) y SIEMPRE consulta la red para /api/*.
  */
 
-const CACHE_NAME = 'prospector-nfc-v6';
+const CACHE_NAME = 'prospector-nfc-v7';
 const RECURSOS_SHELL = [
   './',
   './index.html',
@@ -14,7 +14,9 @@ const RECURSOS_SHELL = [
   './js/scoring.js',
   './js/ruta.js',
   './manifest.webmanifest',
-  './icons/icon.svg'
+  './icons/icon.svg',
+  './icons/icon-192.png',
+  './icons/icon-512.png'
 ];
 
 self.addEventListener('install', (event) => {
