@@ -199,23 +199,49 @@ export function parsearItemGoogleMaps(item, giroClave = 'servicios') {
   };
 }
 
+// Cache en memoria para respuestas inmediatas de 10 minutos
+const CACHE_BUSQUEDAS = new Map();
+const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutos
+
 /**
  * Consulta negocios cercanos para un giro específico en Google Maps público.
  * @param {{lat: number, lng: number, radio: number, giroClave: string}} params
  */
 export async function buscarGiroGooglePublico({ lat, lng, radio, giroClave }) {
+  // Clave de caché redondeando coordenadas a ~100m para velocidad instantánea
+  const cacheKey = `${lat.toFixed(3)}_${lng.toFixed(3)}_${radio}_${giroClave}`;
+  const enCache = CACHE_BUSQUEDAS.get(cacheKey);
+  if (enCache && Date.now() - enCache.timestamp < CACHE_TTL_MS) {
+    return enCache.lugares;
+  }
+
   const termino = TERMINOS_GIRO[giroClave] || giroClave || 'comercio';
   // Ajustar span de cámara al radio solicitado
   const span = Math.max(600, Math.round(radio * 2.2));
   const pb = `!4m12!1m3!1d${span}!2d${lng}!3d${lat}!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!7i20!10b1`;
   const url = `https://www.google.com/search?tbm=map&authuser=0&hl=es-419&gl=mx&q=${encodeURIComponent(termino)}&pb=${pb}`;
 
-  const resp = await fetch(url, {
-    headers: {
-      'User-Agent': USER_AGENT,
-      'Accept-Language': 'es-MX,es-419;q=0.9,es;q=0.8'
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 7500);
+
+  let resp;
+  try {
+    resp = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': USER_AGENT,
+        'Accept-Language': 'es-MX,es-419;q=0.9,es;q=0.8'
+      }
+    });
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      console.warn(`Tiempo límite excedido consultando giro ${giroClave}`);
+      return [];
     }
-  });
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (!resp.ok) {
     throw new Error(`Google Maps respondió con estado ${resp.status}`);
@@ -238,6 +264,15 @@ export async function buscarGiroGooglePublico({ lat, lng, radio, giroClave }) {
     if (dist <= radioMaximo) {
       lugares.push(parsed);
     }
+  }
+
+  // Guardar en caché si hubo resultados
+  if (lugares.length > 0) {
+    if (CACHE_BUSQUEDAS.size > 100) {
+      const primerClave = CACHE_BUSQUEDAS.keys().next().value;
+      CACHE_BUSQUEDAS.delete(primerClave);
+    }
+    CACHE_BUSQUEDAS.set(cacheKey, { timestamp: Date.now(), lugares });
   }
 
   return lugares;

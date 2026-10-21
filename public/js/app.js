@@ -367,7 +367,11 @@ async function iniciarBusquedaConGps() {
         procesarYMostrarLugares(respuesta.lugares);
       } catch (err) {
         console.error('Error en búsqueda:', err);
-        alert(err.message || 'No se pudieron consultar los comercios cercanos.');
+        const errorMsg =
+          err.message === 'Load failed' || err.message === 'Failed to fetch'
+            ? 'Error de conexión de red o datos móviles. Vuelve a tocar en Escanear comercios.'
+            : err.message || 'No se pudieron consultar los comercios cercanos.';
+        mostrarToast(errorMsg);
       } finally {
         restaurarBotonBuscar();
       }
@@ -438,11 +442,36 @@ function filtrarYRenderizarLista() {
   }
 
   if (filtrados.length === 0) {
+    if (estado.lugaresPuntuados.length > 0) {
+      cont.innerHTML = `
+        <div class="empty-state-box">
+          <p class="empty-state-title">Sin comercios de alta oportunidad aquí</p>
+          <p class="empty-state-desc">
+            Los <strong>${estado.lugaresPuntuados.length} comercios</strong> encontrados en esta zona ya están consolidados o tienen muchas reseñas.
+          </p>
+          <button type="button" class="btn-card-action primary-nfc" id="btnVerTodosVacio" style="margin: 14px auto 0 auto; min-width: 240px; justify-content: center;">
+            <span>Ver los ${estado.lugaresPuntuados.length} comercios disponibles</span>
+          </button>
+        </div>
+      `;
+      document.getElementById('btnVerTodosVacio')?.addEventListener('click', () => {
+        estado.filtroPrioridad = 'todos';
+        estado.filtroSoloPlazas = false;
+        document.querySelectorAll('.tab-filter').forEach((t) => {
+          t.classList.toggle('active', t.dataset.filter === 'todos');
+        });
+        const togglePlazas = document.getElementById('togglePlazasChicas');
+        if (togglePlazas) togglePlazas.classList.remove('active');
+        filtrarYRenderizarLista();
+      });
+      return;
+    }
+
     cont.innerHTML = `
       <div class="empty-state-box">
-        <p class="empty-state-title">Sin comercios bajo este filtro</p>
+        <p class="empty-state-title">No se encontraron comercios en este radio</p>
         <p class="empty-state-desc">
-          Cambia la vista a <strong>Todos los comercios</strong>, desactiva el filtro de plazas o amplía el radio de búsqueda.
+          Intenta ampliando el radio a <strong>1.5 km</strong> o <strong>2.5 km</strong> y vuelve a tocar en Escanear.
         </p>
       </div>
     `;

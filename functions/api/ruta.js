@@ -19,6 +19,20 @@ function calcularDistanciaMetros(lat1, lon1, lat2, lon2) {
   return Math.round(2 * R * Math.asin(Math.min(1, Math.sqrt(s))));
 }
 
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, x-codigo, Authorization, Accept',
+  'Access-Control-Max-Age': '86400'
+};
+
+export async function onRequestOptions() {
+  return new Response(null, {
+    status: 204,
+    headers: CORS_HEADERS
+  });
+}
+
 export async function onRequestPost({ request, env }) {
   if (!verificarAutenticacion(request, env)) {
     return respuestaNoAutorizado();
@@ -136,7 +150,8 @@ export async function onRequestPost({ request, env }) {
         status: 200,
         headers: {
           'Content-Type': 'application/json; charset=utf-8',
-          'Cache-Control': 'no-store'
+          'Cache-Control': 'no-store',
+          ...CORS_HEADERS
         }
       }
     );
@@ -151,7 +166,7 @@ export async function onRequestPost({ request, env }) {
       }),
       {
         status: 502,
-        headers: { 'Content-Type': 'application/json; charset=utf-8' }
+        headers: { 'Content-Type': 'application/json; charset=utf-8', ...CORS_HEADERS }
       }
     );
   }

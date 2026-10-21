@@ -6,6 +6,20 @@
 import { obtenerCatalogoGiros } from '../_lib/giros.js';
 import { controlarUsoDiario } from '../_lib/uso.js';
 
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, x-codigo, Authorization, Accept',
+  'Access-Control-Max-Age': '86400'
+};
+
+export async function onRequestOptions() {
+  return new Response(null, {
+    status: 204,
+    headers: CORS_HEADERS
+  });
+}
+
 export async function onRequestGet({ env }) {
   try {
     const usoInfo = await controlarUsoDiario(env, 0);
@@ -24,7 +38,8 @@ export async function onRequestGet({ env }) {
       status: 200,
       headers: {
         'Content-Type': 'application/json; charset=utf-8',
-        'Cache-Control': 'no-store'
+        'Cache-Control': 'no-store',
+        ...CORS_HEADERS
       }
     });
   } catch (err) {
@@ -32,7 +47,7 @@ export async function onRequestGet({ env }) {
       JSON.stringify({ ok: false, error: 'Error al obtener configuración', detalle: err.message }),
       {
         status: 500,
-        headers: { 'Content-Type': 'application/json; charset=utf-8' }
+        headers: { 'Content-Type': 'application/json; charset=utf-8', ...CORS_HEADERS }
       }
     );
   }

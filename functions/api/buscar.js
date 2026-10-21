@@ -12,6 +12,20 @@ import { buscarGiroGooglePublico } from '../_lib/gmaps-public.js';
 import { buscarLugaresOSM } from '../_lib/osm.js';
 import { controlarUsoDiario } from '../_lib/uso.js';
 
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, x-codigo, Authorization, Accept',
+  'Access-Control-Max-Age': '86400'
+};
+
+export async function onRequestOptions() {
+  return new Response(null, {
+    status: 204,
+    headers: CORS_HEADERS
+  });
+}
+
 export async function onRequestPost({ request, env }) {
   if (!verificarAutenticacion(request, env)) {
     return respuestaNoAutorizado();
@@ -124,8 +138,8 @@ export async function onRequestPost({ request, env }) {
       todosLugares.push(...lista);
     }
 
-    // Fallback a OpenStreetMap únicamente si Google Maps directo no devolvió resultados por red
-    if (todosLugares.length === 0 && body.proveedor === 'osm') {
+    // Fallback automático a OpenStreetMap si Google Maps directo no devolvió resultados por red o bloqueo
+    if (todosLugares.length === 0) {
       motorUtilizado = 'openstreetmap';
       const claves = girosAProcesar.map((g) => g.clave);
       const osmLugares = await buscarLugaresOSM({ lat, lng, radio, giros: claves }).catch(() => []);
@@ -144,6 +158,9 @@ export async function onRequestPost({ request, env }) {
     lugaresDeduplicados.push(lugar);
   }
 
+  // Limitar a máximo 60 para rendimiento ágil en redes móviles
+  const lugaresFinales = lugaresDeduplicados.slice(0, 60);
+
   return new Response(
     JSON.stringify({
       ok: true,
@@ -153,15 +170,16 @@ export async function onRequestPost({ request, env }) {
       generado: new Date().toISOString(),
       consultasGoogle: numConsultasGoogle,
       desdeCache: 0,
-      totalEncontrados: lugaresDeduplicados.length,
-      lugares: lugaresDeduplicados,
+      totalEncontrados: lugaresFinales.length,
+      lugares: lugaresFinales,
       avisos
     }),
     {
       status: 200,
       headers: {
         'Content-Type': 'application/json; charset=utf-8',
-        'Cache-Control': 'no-store'
+        'Cache-Control': 'no-store',
+        ...CORS_HEADERS
       }
     }
   );
