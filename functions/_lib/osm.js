@@ -185,7 +185,7 @@ export async function buscarLugaresOSM({ lat, lng, radio, giros }) {
   }
 
   const queryOverpass = `
-[out:json][timeout:25];
+[out:json][timeout:5];
 (
 ${lineasFiltro.join('\n')}
 );
@@ -195,11 +195,16 @@ out center tags;
   let ultimoError = null;
 
   for (const endpoint of OVERPASS_ENDPOINTS) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4500);
+
     try {
       const resp = await fetch(endpoint, {
         method: 'POST',
+        signal: controller.signal,
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
+          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+          'User-Agent': 'ProspectorNFC/1.0 (https://pulso-ops.com; info@pulso-ops.com)'
         },
         body: `data=${encodeURIComponent(queryOverpass)}`
       });
@@ -222,6 +227,8 @@ out center tags;
     } catch (err) {
       ultimoError = err;
       console.warn(`Fallo al consultar endpoint OSM ${endpoint}:`, err.message);
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 

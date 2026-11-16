@@ -115,6 +115,77 @@ export function calcularTraficoResenas(resenas, calificacion = null) {
 }
 
 /**
+ * Clasifica las categorías en español devueltas por Google Maps al catálogo de giros de la app.
+ * @param {string[]} categorias
+ * @param {string} [giroSugerido]
+ * @returns {{clave: string, etiqueta: string}}
+ */
+export function clasificarGiroEspanol(categorias = [], giroSugerido = 'servicios') {
+  const texto = (categorias || []).join(' ').toLowerCase();
+
+  if (texto.includes('café') || texto.includes('cafe') || texto.includes('cafetería') || texto.includes('cafeteria')) {
+    return { clave: 'cafeterias', etiqueta: 'Cafetería' };
+  }
+  if (texto.includes('barber') || texto.includes('peluquer') || texto.includes('barbería') || texto.includes('barberia')) {
+    return { clave: 'barberias', etiqueta: 'Barbería' };
+  }
+  if (
+    texto.includes('estética') ||
+    texto.includes('estetica') ||
+    texto.includes('belleza') ||
+    texto.includes('uñas') ||
+    texto.includes('unas') ||
+    texto.includes('spa') ||
+    texto.includes('salón') ||
+    texto.includes('salon')
+  ) {
+    return { clave: 'esteticas', etiqueta: 'Estética / Salón' };
+  }
+  if (
+    texto.includes('taco') ||
+    texto.includes('taquer') ||
+    texto.includes('rápida') ||
+    texto.includes('rapida') ||
+    texto.includes('torta') ||
+    texto.includes('hamburgues') ||
+    texto.includes('pizza') ||
+    texto.includes('burrito') ||
+    texto.includes('antojit')
+  ) {
+    return { clave: 'comida_rapida', etiqueta: 'Comida rápida / Taquería' };
+  }
+  if (
+    texto.includes('dent') ||
+    texto.includes('médic') ||
+    texto.includes('medic') ||
+    texto.includes('clínic') ||
+    texto.includes('clinic') ||
+    texto.includes('veterinar') ||
+    texto.includes('doctor') ||
+    texto.includes('salud') ||
+    texto.includes('óptic') ||
+    texto.includes('optic')
+  ) {
+    return { clave: 'consultorios', etiqueta: 'Consultorio / Clínica' };
+  }
+  if (
+    texto.includes('restaurante') ||
+    texto.includes('bar ') ||
+    texto.includes('cocina') ||
+    texto.includes('comida') ||
+    texto.includes('bistr') ||
+    texto.includes('parrilla')
+  ) {
+    return { clave: 'restaurantes', etiqueta: 'Restaurante' };
+  }
+
+  return {
+    clave: giroSugerido || 'servicios',
+    etiqueta: categorias[0] ? limpiarEmojis(categorias[0]) : 'Comercio local'
+  };
+}
+
+/**
  * Parsear un registro individual de la matriz de Google Maps (tbm=map).
  * @param {Array<any>} item
  * @param {string} giroClave
@@ -139,7 +210,9 @@ export function parsearItemGoogleMaps(item, giroClave = 'servicios') {
   if (lat === null || lng === null) return null;
 
   const categorias = Array.isArray(item[13]) ? item[13].filter((c) => typeof c === 'string') : [];
-  const giro = limpiarEmojis(categorias[0] || 'Comercio');
+  const clasificacion = clasificarGiroEspanol(categorias, giroClave);
+  const giroFinalClave = clasificacion.clave || giroClave;
+  const giro = clasificacion.etiqueta || limpiarEmojis(categorias[0] || 'Comercio');
 
   const calificacion = typeof item[4]?.[7] === 'number' ? item[4][7] : null;
   const resenas = typeof item[4]?.[8] === 'number' ? Math.max(0, Math.floor(item[4][8])) : 0;
@@ -178,7 +251,7 @@ export function parsearItemGoogleMaps(item, giroClave = 'servicios') {
     nombre,
     fotoUrl,
     traficoResenas,
-    giroClave,
+    giroClave: giroFinalClave,
     giro,
     tipos: categorias,
     direccion,
@@ -204,25 +277,16 @@ const CACHE_BUSQUEDAS = new Map();
 const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutos
 
 /**
- * Consulta negocios cercanos para un giro específico en Google Maps público.
- * @param {{lat: number, lng: number, radio: number, giroClave: string}} params
+ * Consulta un término específico en Google Maps público.
+ * @param {{lat: number, lng: number, radio: number, termino: string, giroClaveDefecto?: string}} params
  */
-export async function buscarGiroGooglePublico({ lat, lng, radio, giroClave }) {
-  // Clave de caché redondeando coordenadas a ~100m para velocidad instantánea
-  const cacheKey = `${lat.toFixed(3)}_${lng.toFixed(3)}_${radio}_${giroClave}`;
-  const enCache = CACHE_BUSQUEDAS.get(cacheKey);
-  if (enCache && Date.now() - enCache.timestamp < CACHE_TTL_MS) {
-    return enCache.lugares;
-  }
-
-  const termino = TERMINOS_GIRO[giroClave] || giroClave || 'comercio';
-  // Ajustar span de cámara al radio solicitado
+export async function buscarTerminoGoogleMaps({ lat, lng, radio, termino, giroClaveDefecto = 'servicios' }) {
   const span = Math.max(600, Math.round(radio * 2.2));
   const pb = `!4m12!1m3!1d${span}!2d${lng}!3d${lat}!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!7i20!10b1`;
   const url = `https://www.google.com/search?tbm=map&authuser=0&hl=es-419&gl=mx&q=${encodeURIComponent(termino)}&pb=${pb}`;
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 7500);
+  const timeoutId = setTimeout(() => controller.abort(), 6500);
 
   let resp;
   try {
@@ -235,7 +299,7 @@ export async function buscarGiroGooglePublico({ lat, lng, radio, giroClave }) {
     });
   } catch (err) {
     if (err.name === 'AbortError') {
-      console.warn(`Tiempo límite excedido consultando giro ${giroClave}`);
+      console.warn(`Tiempo límite excedido consultando "${termino}"`);
       return [];
     }
     throw err;
@@ -253,12 +317,11 @@ export async function buscarGiroGooglePublico({ lat, lng, radio, giroClave }) {
   const entries = Array.isArray(data?.[0]?.[1]) ? data[0][1] : [];
 
   const lugares = [];
-  // Permitimos un margen razonable (radio * 1.5) para no recortar negocios en bordes de cuadra
   const radioMaximo = Math.max(radio * 1.5, 500);
 
   for (const entry of entries) {
     const item = entry?.[14];
-    const parsed = parsearItemGoogleMaps(item, giroClave);
+    const parsed = parsearItemGoogleMaps(item, giroClaveDefecto);
     if (!parsed) continue;
     const dist = distanciaMetros(lat, lng, parsed.lat, parsed.lng);
     if (dist <= radioMaximo) {
@@ -266,14 +329,114 @@ export async function buscarGiroGooglePublico({ lat, lng, radio, giroClave }) {
     }
   }
 
-  // Guardar en caché si hubo resultados
-  if (lugares.length > 0) {
-    if (CACHE_BUSQUEDAS.size > 100) {
+  return lugares;
+}
+
+/**
+ * Consulta negocios de múltiples giros agrupándolos de forma inteligente en máximo 2 consultas concurrentes.
+ * Esto evita el bloqueo por ráfagas de Cloudflare Workers a Google Maps y garantiza respuestas en sub-segundos.
+ * @param {{lat: number, lng: number, radio: number, giros?: string[]}} params
+ */
+export async function buscarComerciosGooglePublico({ lat, lng, radio, giros = [] }) {
+  const girosOrd = [...giros].sort().join(',');
+  const cacheKey = `${lat.toFixed(3)}_${lng.toFixed(3)}_${radio}_${girosOrd}`;
+  const enCache = CACHE_BUSQUEDAS.get(cacheKey);
+  if (enCache && Date.now() - enCache.timestamp < CACHE_TTL_MS) {
+    return enCache.lugares;
+  }
+
+  const girosAlimentos = ['restaurantes', 'cafeterias', 'comida_rapida'];
+  const girosServicios = ['barberias', 'esteticas', 'consultorios'];
+
+  const alimentos = giros.filter((g) => girosAlimentos.includes(g));
+  const servicios = giros.filter((g) => girosServicios.includes(g));
+  const otros = giros.filter((g) => !girosAlimentos.includes(g) && !girosServicios.includes(g));
+
+  const consultas = [];
+
+  if (alimentos.length > 0) {
+    consultas.push({
+      termino: alimentos.map((g) => TERMINOS_GIRO[g] || g).join(' OR '),
+      giroDefecto: alimentos[0]
+    });
+  }
+
+  if (servicios.length > 0) {
+    consultas.push({
+      termino: servicios.map((g) => TERMINOS_GIRO[g] || g).join(' OR '),
+      giroDefecto: servicios[0]
+    });
+  }
+
+  if (otros.length > 0) {
+    if (consultas.length === 0) {
+      consultas.push({
+        termino: otros.map((g) => TERMINOS_GIRO[g] || g).join(' OR '),
+        giroDefecto: otros[0]
+      });
+    } else {
+      consultas[0].termino += ' OR ' + otros.map((g) => TERMINOS_GIRO[g] || g).join(' OR ');
+    }
+  }
+
+  if (consultas.length === 0) {
+    consultas.push(
+      { termino: 'restaurante OR cafeteria OR taqueria', giroDefecto: 'restaurantes' },
+      { termino: 'barberia OR estetica OR consultorio', giroDefecto: 'barberias' }
+    );
+  }
+
+  const promesas = consultas.map((c) =>
+    buscarTerminoGoogleMaps({
+      lat,
+      lng,
+      radio,
+      termino: c.termino,
+      giroClaveDefecto: c.giroDefecto
+    }).catch((err) => {
+      console.warn(`Aviso buscando "${c.termino}" en Google Maps:`, err.message);
+      return [];
+    })
+  );
+
+  const resultados = await Promise.all(promesas);
+  const todos = [];
+  for (const lista of resultados) {
+    todos.push(...lista);
+  }
+
+  // Deduplicar por placeId
+  const vistos = new Set();
+  const unicos = [];
+  for (const item of todos) {
+    if (!item.placeId || vistos.has(item.placeId)) continue;
+    vistos.add(item.placeId);
+    unicos.push(item);
+  }
+
+  if (unicos.length > 0) {
+    if (CACHE_BUSQUEDAS.size > 150) {
       const primerClave = CACHE_BUSQUEDAS.keys().next().value;
       CACHE_BUSQUEDAS.delete(primerClave);
     }
-    CACHE_BUSQUEDAS.set(cacheKey, { timestamp: Date.now(), lugares });
+    CACHE_BUSQUEDAS.set(cacheKey, { timestamp: Date.now(), lugares: unicos });
   }
 
-  return lugares;
+  return unicos;
+}
+
+/**
+ * Consulta negocios cercanos para un giro específico en Google Maps público.
+ * Mantenido por compatibilidad con el resto del sistema.
+ * @param {{lat: number, lng: number, radio: number, giroClave: string}} params
+ */
+export async function buscarGiroGooglePublico({ lat, lng, radio, giroClave }) {
+  const termino = TERMINOS_GIRO[giroClave] || giroClave || 'comercio';
+  return buscarTerminoGoogleMaps({
+    lat,
+    lng,
+    radio,
+    termino,
+    giroClaveDefecto: giroClave
+  });
 }

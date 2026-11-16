@@ -154,4 +154,16 @@ test('gmaps-public.js extrae Place ID ChIJ, reseñas reales y link writereview s
   );
 });
 
+test('clasificarGiroEspanol clasifica categorías en español correctamente', async () => {
+  const { clasificarGiroEspanol } = await import('../functions/_lib/gmaps-public.js');
+
+  assert.equal(clasificarGiroEspanol(['Cafetería', 'Desayunos']).clave, 'cafeterias');
+  assert.equal(clasificarGiroEspanol(['Barbería tradicional']).clave, 'barberias');
+  assert.equal(clasificarGiroEspanol(['Salón de belleza', 'Uñas']).clave, 'esteticas');
+  assert.equal(clasificarGiroEspanol(['Taquería', 'Antojitos']).clave, 'comida_rapida');
+  assert.equal(clasificarGiroEspanol(['Clínica dental']).clave, 'consultorios');
+  assert.equal(clasificarGiroEspanol(['Restaurante bar']).clave, 'restaurantes');
+});
+
+
 

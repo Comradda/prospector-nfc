@@ -426,6 +426,21 @@ function filtrarYRenderizarLista() {
   const countText = document.getElementById('resultsCountText');
   if (!cont) return;
 
+  // Si se buscó con "Mayor oportunidad" pero en esta zona todos los comercios tienen más de 15 reseñas,
+  // conmutar automáticamente a "Todos los comercios" para que el vendedor vea los comercios de inmediato sin pantalla vacía
+  if (estado.filtroPrioridad === 'alta_media' && !estado.filtroSoloPlazas) {
+    const hayOportunidades = estado.lugaresPuntuados.some(
+      (l) => l.prioridad === 'alta' || l.prioridad === 'media'
+    );
+    if (!hayOportunidades && estado.lugaresPuntuados.length > 0) {
+      estado.filtroPrioridad = 'todos';
+      document.querySelectorAll('.tab-filter').forEach((t) => {
+        t.classList.toggle('active', t.dataset.filter === 'todos');
+      });
+      mostrarToast(`Mostrando los ${estado.lugaresPuntuados.length} comercios: en esta zona todos tienen más de 15 reseñas.`);
+    }
+  }
+
   let filtrados = estado.lugaresPuntuados;
 
   if (estado.filtroPrioridad === 'alta_media') {

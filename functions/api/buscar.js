@@ -8,7 +8,7 @@
 import { verificarAutenticacion, respuestaNoAutorizado } from '../_lib/auth.js';
 import { GIROS, obtenerGiroPorClave } from '../_lib/giros.js';
 import { buscarLugaresGoogle } from '../_lib/google.js';
-import { buscarGiroGooglePublico } from '../_lib/gmaps-public.js';
+import { buscarGiroGooglePublico, buscarComerciosGooglePublico } from '../_lib/gmaps-public.js';
 import { buscarLugaresOSM } from '../_lib/osm.js';
 import { controlarUsoDiario } from '../_lib/uso.js';
 
@@ -119,30 +119,28 @@ export async function onRequestPost({ request, env }) {
     }
   } else {
     // ── Modo Directo Google Maps (100% Gratuito, Place IDs ChIJ... reales y reseñas reales) ──
-    const promesas = girosAProcesar.map(async (giro) => {
-      try {
-        return await buscarGiroGooglePublico({
-          lat,
-          lng,
-          radio,
-          giroClave: giro.clave
-        });
-      } catch (err) {
-        console.warn(`Aviso buscando giro ${giro.clave} en Google Maps directo:`, err.message);
-        return [];
-      }
-    });
-
-    const resultados = await Promise.all(promesas);
-    for (const lista of resultados) {
-      todosLugares.push(...lista);
+    const claves = girosAProcesar.map((g) => g.clave);
+    try {
+      const lugaresGoogle = await buscarComerciosGooglePublico({
+        lat,
+        lng,
+        radio,
+        giros: claves
+      });
+      todosLugares.push(...lugaresGoogle);
+    } catch (err) {
+      console.warn('Aviso buscando comercios en Google Maps directo:', err.message);
+      avisos.push(`Google Maps directo: ${err.message}`);
     }
 
     // Fallback automático a OpenStreetMap si Google Maps directo no devolvió resultados por red o bloqueo
     if (todosLugares.length === 0) {
       motorUtilizado = 'openstreetmap';
-      const claves = girosAProcesar.map((g) => g.clave);
-      const osmLugares = await buscarLugaresOSM({ lat, lng, radio, giros: claves }).catch(() => []);
+      const osmLugares = await buscarLugaresOSM({ lat, lng, radio, giros: claves }).catch((err) => {
+        console.warn('Aviso buscando en OpenStreetMap fallback:', err.message);
+        avisos.push(`OpenStreetMap: ${err.message}`);
+        return [];
+      });
       todosLugares.push(...osmLugares);
     }
   }
