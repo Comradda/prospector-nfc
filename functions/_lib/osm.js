@@ -168,20 +168,21 @@ export function normalizarLugarOSM(el, giroSugerido) {
  */
 export async function buscarLugaresOSM({ lat, lng, radio, giros }) {
   const lineasFiltro = [];
+  const radioOSM = Math.max(radio, 1500);
 
   for (const g of giros) {
     const filtros = FILTROS_OSM_GIROS[g] || [];
     for (const f of filtros) {
-      lineasFiltro.push(`  ${f}(around:${radio}, ${lat}, ${lng});`);
+      lineasFiltro.push(`  ${f}(around:${radioOSM}, ${lat}, ${lng});`);
     }
   }
 
   // Si no se pasaron giros o no hay filtros, buscar categorías principales
   if (lineasFiltro.length === 0) {
-    lineasFiltro.push(`  node["amenity"~"restaurant|cafe|fast_food|dentist|doctors|clinic"](around:${radio}, ${lat}, ${lng});`);
-    lineasFiltro.push(`  way["amenity"~"restaurant|cafe|fast_food|dentist|doctors|clinic"](around:${radio}, ${lat}, ${lng});`);
-    lineasFiltro.push(`  node["shop"~"hairdresser|beauty|nail_salon|spa"](around:${radio}, ${lat}, ${lng});`);
-    lineasFiltro.push(`  way["shop"~"hairdresser|beauty|nail_salon|spa"](around:${radio}, ${lat}, ${lng});`);
+    lineasFiltro.push(`  node["amenity"~"restaurant|cafe|fast_food|dentist|doctors|clinic"](around:${radioOSM}, ${lat}, ${lng});`);
+    lineasFiltro.push(`  way["amenity"~"restaurant|cafe|fast_food|dentist|doctors|clinic"](around:${radioOSM}, ${lat}, ${lng});`);
+    lineasFiltro.push(`  node["shop"~"hairdresser|beauty|nail_salon|spa"](around:${radioOSM}, ${lat}, ${lng});`);
+    lineasFiltro.push(`  way["shop"~"hairdresser|beauty|nail_salon|spa"](around:${radioOSM}, ${lat}, ${lng});`);
   }
 
   const queryOverpass = `

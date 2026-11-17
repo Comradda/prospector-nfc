@@ -294,7 +294,8 @@ export async function buscarTerminoGoogleMaps({ lat, lng, radio, termino, giroCl
       signal: controller.signal,
       headers: {
         'User-Agent': USER_AGENT,
-        'Accept-Language': 'es-MX,es-419;q=0.9,es;q=0.8'
+        'Accept-Language': 'es-MX,es-419;q=0.9,es;q=0.8',
+        'Cookie': 'SOCS=CAISHAgBEhJnd3NfMjAyNDA5MjQtMF9SQzIaAmVzIAEaBgiA_L62Bg; CONSENT=PENDING+999'
       }
     });
   } catch (err) {
@@ -313,10 +314,18 @@ export async function buscarTerminoGoogleMaps({ lat, lng, radio, termino, giroCl
 
   const text = await resp.text();
   const clean = text.replace(/^\)\]\}'\n?/, '');
-  const data = JSON.parse(clean);
+  let data;
+  try {
+    data = JSON.parse(clean);
+  } catch (errJson) {
+    console.warn(`Respuesta no JSON de Google Maps para "${termino}":`, errJson.message);
+    return [];
+  }
+
   const entries = Array.isArray(data?.[0]?.[1]) ? data[0][1] : [];
 
-  const lugares = [];
+  const dentro = [];
+  const fuera = [];
   const radioMaximo = Math.max(radio * 1.5, 500);
 
   for (const entry of entries) {
@@ -324,9 +333,22 @@ export async function buscarTerminoGoogleMaps({ lat, lng, radio, termino, giroCl
     const parsed = parsearItemGoogleMaps(item, giroClaveDefecto);
     if (!parsed) continue;
     const dist = distanciaMetros(lat, lng, parsed.lat, parsed.lng);
+    parsed.distanciaM = dist;
     if (dist <= radioMaximo) {
-      lugares.push(parsed);
+      dentro.push(parsed);
+    } else {
+      fuera.push(parsed);
     }
+  }
+
+  let lugares = dentro;
+  // Si en el radio estricto hay pocos comercios (< 5, típico en colonias residenciales o fraccionamientos),
+  // incorporar los más cercanos detectados por Google Maps en la periferia ordenados por distancia
+  // para que el vendedor NUNCA experimente una pantalla vacía con 0 comercios.
+  if (lugares.length < 5 && fuera.length > 0) {
+    fuera.sort((a, b) => a.distanciaM - b.distanciaM);
+    const faltantes = Math.max(10, 15 - lugares.length);
+    lugares = lugares.concat(fuera.slice(0, faltantes));
   }
 
   return lugares;

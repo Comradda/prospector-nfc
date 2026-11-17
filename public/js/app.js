@@ -201,9 +201,7 @@ function configurarEventosUI() {
       if (lbl) lbl.textContent = btn.textContent;
       if (estado.ubicacion) {
         pintarUbicacionUsuario(estado.ubicacion, estado.radio);
-      }
-      if (estado.lugaresPuntuados.length > 0) {
-        filtrarYRenderizarLista();
+        ejecutarBusquedaProspectos();
       }
     });
   });
@@ -328,67 +326,120 @@ function actualizarConteoConsultas() {
 
 /* ───────────────────────────── Geolocalización & Búsqueda ───────────────────────────── */
 
+/**
+ * Obtiene la ubicación del usuario de forma ultra-robusta:
+ * 1. Primero intenta con GPS de alta precisión con timeout rápido de 5.5s y caché de 3 min.
+ * 2. Si falla o demora (típico en PCs como Acer o celulares Samsung bajo techo),
+ *    conmuta inmediatamente a triangulación de red/WiFi (funciona al instante).
+ * 3. Si ambas fallan (sin permisos o sin señal), usa la última ubicación conocida en sessionStorage.
+ * 4. Si es la primera vez y no hay nada disponible, usa coordenadas urbanas de referencia
+ *    (Puebla / CDMX) y avisa con un mensaje flotante para que NUNCA quede trabado.
+ */
+async function obtenerPosicionRobusta() {
+  if (!navigator.geolocation) {
+    const guardada = estado.ubicacion || JSON.parse(sessionStorage.getItem('prospector_ubicacion') || 'null');
+    if (guardada && typeof guardada.lat === 'number') {
+      return { coords: { latitude: guardada.lat, longitude: guardada.lng } };
+    }
+    return { coords: { latitude: 19.0437, longitude: -98.1983 }, esFallback: true };
+  }
+
+  // 1. Alta precisión (satelital / GPS) con timeout rápido de 5.5s
+  try {
+    return await new Promise((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: true,
+        timeout: 5500,
+        maximumAge: 180000 // 3 min cache
+      });
+    });
+  } catch (errGps) {
+    console.warn('GPS alta precisión falló o demoró, usando triangulación rápida de red/WiFi...', errGps.message);
+
+    // 2. Baja precisión (WiFi / Antenas / IP de Windows o Android) con timeout de 6.5s
+    try {
+      return await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: false,
+          timeout: 6500,
+          maximumAge: 600000 // 10 min cache
+        });
+      });
+    } catch (errRed) {
+      console.warn('Triangulación de red también falló:', errRed.message);
+
+      // 3. Reusar última ubicación válida si existe
+      const guardada = estado.ubicacion || JSON.parse(sessionStorage.getItem('prospector_ubicacion') || 'null');
+      if (guardada && typeof guardada.lat === 'number') {
+        mostrarToast('Usando última ubicación conocida');
+        return { coords: { latitude: guardada.lat, longitude: guardada.lng } };
+      }
+
+      // 4. Fallback a centro urbano conocido para que el vendedor no se quede bloqueado
+      mostrarToast('Sin señal GPS: Mostrando comercios del centro');
+      return { coords: { latitude: 19.0437, longitude: -98.1983 }, esFallback: true };
+    }
+  }
+}
+
 async function iniciarBusquedaConGps() {
   const btn = document.getElementById('btnBuscarGps');
   if (btn) {
     btn.disabled = true;
-    btn.innerHTML = `<span>Obteniendo coordenadas GPS...</span>`;
-  }
-
-  if (!navigator.geolocation) {
-    alert('Tu navegador no permite geolocalización.');
-    restaurarBotonBuscar();
-    return;
+    btn.innerHTML = `<span>Obteniendo ubicación...</span>`;
   }
 
   actualizarIndicadorGps('Localizando...', false);
 
-  navigator.geolocation.getCurrentPosition(
-    async (pos) => {
-      estado.ubicacion = {
-        lat: pos.coords.latitude,
-        lng: pos.coords.longitude
-      };
-      sessionStorage.setItem('prospector_ubicacion', JSON.stringify(estado.ubicacion));
-      actualizarIndicadorGps('Ubicación activa', true);
+  try {
+    const pos = await obtenerPosicionRobusta();
+    estado.ubicacion = {
+      lat: pos.coords.latitude,
+      lng: pos.coords.longitude
+    };
+    sessionStorage.setItem('prospector_ubicacion', JSON.stringify(estado.ubicacion));
+    actualizarIndicadorGps(pos.esFallback ? 'Ubicación estimada' : 'Ubicación activa', true);
 
-      if (btn) btn.innerHTML = `<span>Analizando comercios y reseñas...</span>`;
-      mostrarSkeletons();
+    await ejecutarBusquedaProspectos();
+  } catch (err) {
+    console.error('Error obteniendo ubicación:', err);
+    actualizarIndicadorGps('Sin señal GPS', false);
+    mostrarToast('No se pudo obtener tu ubicación. Verifica los permisos de tu navegador.');
+  } finally {
+    restaurarBotonBuscar();
+  }
+}
 
-      try {
-        const respuesta = await buscarProspectos({
-          lat: estado.ubicacion.lat,
-          lng: estado.ubicacion.lng,
-          radio: estado.radio,
-          giros: [...estado.giros]
-        });
+async function ejecutarBusquedaProspectos() {
+  if (!estado.ubicacion) return;
 
-        sessionStorage.setItem('prospector_ultimos_lugares', JSON.stringify(respuesta.lugares));
-        procesarYMostrarLugares(respuesta.lugares);
-      } catch (err) {
-        console.error('Error en búsqueda:', err);
-        const errorMsg =
-          err.message === 'Load failed' || err.message === 'Failed to fetch'
-            ? 'Error de conexión de red o datos móviles. Vuelve a tocar en Escanear comercios.'
-            : err.message || 'No se pudieron consultar los comercios cercanos.';
-        mostrarToast(errorMsg);
-      } finally {
-        restaurarBotonBuscar();
-      }
-    },
-    (err) => {
-      console.warn('Error GPS:', err);
-      actualizarIndicadorGps('Sin señal GPS', false);
-      restaurarBotonBuscar();
-      let msg = 'No se pudo obtener tu ubicación actual.';
-      if (err.code === 1) {
-        msg =
-          'Permiso de ubicación denegado. Activa el permiso de ubicación en la barra de dirección de tu navegador.';
-      }
-      alert(msg);
-    },
-    { enableHighAccuracy: true, timeout: 14000, maximumAge: 30000 }
-  );
+  const btn = document.getElementById('btnBuscarGps');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span>Analizando comercios y reseñas...</span>`;
+  }
+  mostrarSkeletons();
+
+  try {
+    const respuesta = await buscarProspectos({
+      lat: estado.ubicacion.lat,
+      lng: estado.ubicacion.lng,
+      radio: estado.radio,
+      giros: [...estado.giros]
+    });
+
+    sessionStorage.setItem('prospector_ultimos_lugares', JSON.stringify(respuesta.lugares));
+    procesarYMostrarLugares(respuesta.lugares);
+  } catch (err) {
+    console.error('Error en búsqueda:', err);
+    const errorMsg =
+      err.message === 'Load failed' || err.message === 'Failed to fetch'
+        ? 'Error de conexión de red o datos móviles. Vuelve a tocar en Escanear comercios.'
+        : err.message || 'No se pudieron consultar los comercios cercanos.';
+    mostrarToast(errorMsg);
+  } finally {
+    restaurarBotonBuscar();
+  }
 }
 
 function restaurarBotonBuscar() {
@@ -434,9 +485,7 @@ function filtrarYRenderizarLista() {
     );
     if (!hayOportunidades && estado.lugaresPuntuados.length > 0) {
       estado.filtroPrioridad = 'todos';
-      document.querySelectorAll('.tab-filter').forEach((t) => {
-        t.classList.toggle('active', t.dataset.filter === 'todos');
-      });
+      actualizarBotonesFiltro();
       mostrarToast(`Mostrando los ${estado.lugaresPuntuados.length} comercios: en esta zona todos tienen más de 15 reseñas.`);
     }
   }
@@ -457,6 +506,26 @@ function filtrarYRenderizarLista() {
   }
 
   if (filtrados.length === 0) {
+    if (estado.filtroSoloPlazas && estado.lugaresPuntuados.length > 0) {
+      cont.innerHTML = `
+        <div class="empty-state-box">
+          <p class="empty-state-title">Sin plazas pequeñas en este radio</p>
+          <p class="empty-state-desc">
+            Hay <strong>${estado.lugaresPuntuados.length} comercios</strong> en la zona pero están en locales independientes, no dentro de una plaza comercial.
+          </p>
+          <button type="button" class="btn-card-action primary-nfc" id="btnDesactivarPlazasVacio" style="margin: 14px auto 0 auto; min-width: 240px; justify-content: center;">
+            <span>Ver todos los ${estado.lugaresPuntuados.length} comercios</span>
+          </button>
+        </div>
+      `;
+      document.getElementById('btnDesactivarPlazasVacio')?.addEventListener('click', () => {
+        estado.filtroSoloPlazas = false;
+        document.getElementById('btnTogglePlaza')?.classList.remove('active');
+        filtrarYRenderizarLista();
+      });
+      return;
+    }
+
     if (estado.lugaresPuntuados.length > 0) {
       cont.innerHTML = `
         <div class="empty-state-box">
@@ -472,11 +541,8 @@ function filtrarYRenderizarLista() {
       document.getElementById('btnVerTodosVacio')?.addEventListener('click', () => {
         estado.filtroPrioridad = 'todos';
         estado.filtroSoloPlazas = false;
-        document.querySelectorAll('.tab-filter').forEach((t) => {
-          t.classList.toggle('active', t.dataset.filter === 'todos');
-        });
-        const togglePlazas = document.getElementById('togglePlazasChicas');
-        if (togglePlazas) togglePlazas.classList.remove('active');
+        actualizarBotonesFiltro();
+        document.getElementById('btnTogglePlaza')?.classList.remove('active');
         filtrarYRenderizarLista();
       });
       return;
@@ -484,12 +550,29 @@ function filtrarYRenderizarLista() {
 
     cont.innerHTML = `
       <div class="empty-state-box">
-        <p class="empty-state-title">No se encontraron comercios en este radio</p>
+        <p class="empty-state-title">No se encontraron comercios en ${estado.radio} m</p>
         <p class="empty-state-desc">
-          Intenta ampliando el radio a <strong>1.5 km</strong> o <strong>2.5 km</strong> y vuelve a tocar en Escanear.
+          En zonas residenciales los comercios suelen ubicarse en avenidas a mayor distancia.
         </p>
+        <button type="button" class="btn-card-action primary-nfc" id="btnAmpliarRadioVacio" style="margin: 14px auto 0 auto; min-width: 240px; justify-content: center;">
+          <span>Ampliar radio a 1.5 km y re-escanear</span>
+        </button>
       </div>
     `;
+    document.getElementById('btnAmpliarRadioVacio')?.addEventListener('click', () => {
+      estado.radio = 1500;
+      document.querySelectorAll('.chip-radio').forEach((b) => {
+        b.classList.toggle('active', b.dataset.radio === '1500');
+      });
+      const lbl = document.getElementById('radioActivoLabel');
+      if (lbl) lbl.textContent = '1.5 km';
+      if (estado.ubicacion) {
+        pintarUbicacionUsuario(estado.ubicacion, estado.radio);
+        ejecutarBusquedaProspectos();
+      } else {
+        iniciarBusquedaConGps();
+      }
+    });
     return;
   }
 
